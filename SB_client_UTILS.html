@@ -1,0 +1,341 @@
+<script>
+    /**
+     * Item Filter Service
+     * Handles filtering logic for search functionality
+     */
+    class ItemFilter {
+      constructor(items) {
+        this.items = items;
+      }
+      
+      /**
+       * Filters items based on search input
+       * @param {string} searchInput - The search term
+       * @returns {Array} Filtered items array
+       */
+      filterBySearchTerm(searchInput) {
+        if (!searchInput || !this.items) {
+          return [];
+        }
+        
+        const searchWords = searchInput.toLowerCase().split(/\s+/);
+        return this.items.filter(item => 
+          searchWords.every(word => this.itemMatchesWord(item, word))
+        );
+      }
+      
+      /**
+       * Checks if an item matches a specific word
+       * @param {Object} item - The item to check
+       * @param {string} word - The word to match
+       * @returns {boolean} True if item matches the word
+       */
+      itemMatchesWord(item, word) {
+        const searchableFields = ['itemSheet', 'itemTitle', 'itemTag'];
+        return searchableFields.some(field => 
+          this.getFieldValue(item, field).includes(word)
+        );
+      }
+      
+      /**
+       * Gets the value of a field from an item
+       * @param {Object} item - The item object
+       * @param {string} field - The field name
+       * @returns {string} The field value
+       */
+      getFieldValue(item, field) {
+        return item[field] ? item[field].toString().toLowerCase() : '';
+      }
+    }
+
+    /**
+     * DOM Utilities Service
+     * Handles DOM manipulation and element finding
+     */
+    class DOMUtils {
+      /**
+       * Finds an element by ID and throws error if not found
+       * @param {string} id - The element ID
+       * @returns {HTMLElement} The found element
+       * @throws {Error} If element not found
+       */
+      static findElementById(id) {
+        const element = document.getElementById(id);
+        if (!element) {
+          throw new Error(`Element with ID "${id}" not found`);
+        }
+        return element;
+      }
+      
+      /**
+       * Finds an element by ID and returns null if not found
+       * @param {string} id - The element ID
+       * @returns {HTMLElement|null} The found element or null
+       */
+      static findElementByIdOrNull(id) {
+        return document.getElementById(id);
+      }
+      
+      /**
+       * Gets template content by ID
+       * @param {string} templateId - The template ID
+       * @returns {DocumentFragment|null} The template content or null
+       */
+      static getTemplateContent(templateId) {
+        const templateBox = this.findElementByIdOrNull(templateId);
+        if (!templateBox) {
+          console.error(`❌ Template with ID "${templateId}" not found`);
+          return null;
+        }
+        return templateBox.content;
+      }
+      
+      /**
+       * Sets text content of an element safely
+       * @param {HTMLElement} element - The element to update
+       * @param {string} text - The text to set
+       */
+      static setElementTextContent(element, text) {
+        if (element) {
+          element.textContent = text;
+        } else {
+          console.error('❌ Element not found for setting text content');
+        }
+      }
+      
+      /**
+       * Gets search input value
+       * @returns {string} The search input value
+       */
+      static getSearchInputValue() {
+        const input = this.findElementByIdOrNull('searchInputId');
+        return input ? input.value.toLowerCase().trim() : '';
+      }
+    }
+
+    /**
+     * UI Builder Service
+     * Handles UI construction and manipulation
+     */
+    class UIBuilder {
+      /**
+       * Builds filter buttons from sheet data
+       * @param {Array} sheets - Array of sheet information
+       */
+      buildFilterButtons(sheets) {
+        const filterContainer = DOMUtils.findElementByIdOrNull('filter');
+        if (!filterContainer) {
+          console.error('❌ Filter container not found');
+          return;
+        }
+        
+        const templateContent = DOMUtils.getTemplateContent('filter-button');
+        if (!templateContent) {
+          console.error('❌ Filter button template not found');
+          return;
+        }
+        
+        const uniqueButtons = this.getUniqueFilterButtons(sheets);
+        uniqueButtons.forEach((button, index) => {
+          this.createAndAppendButton(button, filterContainer, templateContent, index);
+        });
+        
+      }
+      
+      /**
+       * Gets unique filter buttons from sheet data
+       * @param {Array} sheets - Array of sheet information
+       * @returns {Array} Array of unique button configurations
+       */
+      getUniqueFilterButtons(sheets) {
+        const allButtons = sheets.map(sheetData => ({
+          buttonName: sheetData.sheetButton,
+          buttonStyle: `btn-outline-${sheetData.sheetStyle}`,
+          filterTarget: sheetData.sheetTag
+        }));
+        
+        // Remove duplicates
+        return Array.from(new Set(allButtons.map(button => JSON.stringify(button))))
+          .map(button => JSON.parse(button));
+      }
+      
+      /**
+       * Creates and appends a button to a container
+       * @param {Object} button - Button configuration
+       * @param {HTMLElement} container - Container element
+       * @param {DocumentFragment} template - Button template
+       * @param {number} index - Button index
+       */
+      createAndAppendButton(button, container, template, index) {
+        const buttonTemplate = template.cloneNode(true);
+        const elButton = buttonTemplate.querySelector('.btn');
+        
+        if (elButton) {
+          elButton.id = `filter-btn-${index}`;
+          elButton.classList.add(button.buttonStyle);
+          elButton.innerHTML = button.buttonName;
+          elButton.dataset.filterTarget = button.filterTarget;
+          container.appendChild(buttonTemplate);
+        } else {
+          console.error('❌ Button element not found in template');
+        }
+      }
+      
+      /**
+       * Populates search results in the top list
+       * @param {Array} resultsArray - Array of result items
+       */
+      populateSearchResults(resultsArray) {
+        const topList = DOMUtils.findElementByIdOrNull('topList');
+        if (!topList) {
+          console.error('❌ Top list not found');
+          return;
+        }
+        
+        topList.innerHTML = '';
+        const templateContent = DOMUtils.getTemplateContent('template-list-item');
+        
+        if (!templateContent) {
+          console.error('❌ List item template not found');
+          return;
+        }
+        
+        resultsArray.forEach(resultObj => {
+          this.createAndAppendListItem(resultObj, topList, templateContent);
+        });
+      }
+      
+      /**
+       * Creates and appends a list item to a container
+       * @param {Object} resultObj - Result object
+       * @param {HTMLElement} container - Container element
+       * @param {DocumentFragment} template - List item template
+       */
+      createAndAppendListItem(resultObj, container, template) {
+        if (!template) {
+          console.error('❌ Template is null, cannot create item');
+          return;
+        }
+        
+        const listItemTemplate = template.cloneNode(true);
+        const elListItem = listItemTemplate.querySelector('li');
+        
+        if (elListItem) {
+          elListItem.classList.add(`list-group-item-${resultObj.itemStyle}`);
+          elListItem.setAttribute('data-item-text', resultObj.itemText);
+          DOMUtils.setElementTextContent(
+            listItemTemplate.querySelector('.item-title'), 
+            resultObj.itemTitle
+          );
+          container.appendChild(listItemTemplate);
+        } else {
+          console.error('❌ List item element not found in template');
+        }
+      }
+    }
+
+    /**
+     * Loading State Manager
+     * Handles loading states and UI feedback
+     */
+    class LoadingManager {
+      /**
+       * Shows the loading spinner
+       */
+      static showLoadingSpinner() {
+        const loading = DOMUtils.findElementByIdOrNull('loading');
+        if (loading) {
+          loading.classList.remove('invisible');
+        } else {
+          console.error('❌ Loading element not found');
+        }
+      }
+      
+      /**
+       * Hides the loading spinner
+       */
+      static hideLoadingSpinner() {
+        const loading = DOMUtils.findElementByIdOrNull('loading');
+        if (loading) {
+          loading.classList.add('invisible');
+        } else {
+          console.error('❌ Loading element not found');
+        }
+      }
+      
+      /**
+       * Disables action buttons
+       */
+      static disableActionButtons() {
+        const buttons = document.querySelectorAll('.action-button');
+        buttons.forEach(button => button.disabled = true);
+      }
+      
+      /**
+       * Enables action buttons
+       */
+      static enableActionButtons() {
+        const buttons = document.querySelectorAll('.action-button');
+        buttons.forEach(button => button.disabled = false);
+      }
+    }
+
+    // Global instances
+    const uiBuilder = new UIBuilder();
+
+    // Essential utility functions
+    function getSearchInputValue() {
+      return DOMUtils.getSearchInputValue();
+    }
+
+    function buildFilterButtons(sheets) {
+      return uiBuilder.buildFilterButtons(sheets);
+    }
+
+    function showLoadingSpinner() {
+      LoadingManager.showLoadingSpinner();
+    }
+
+    function hideLoadingSpinner() {
+      LoadingManager.hideLoadingSpinner();
+    }
+
+    function disableActionButtons() {
+      LoadingManager.disableActionButtons();
+    }
+
+    function enableActionButtons() {
+      LoadingManager.enableActionButtons();
+    }
+
+    function clearListBotton() {
+      const listBottom = DOMUtils.findElementByIdOrNull('listBotton');
+      if (listBottom) {
+        listBottom.innerHTML = '';
+      } else {
+        console.error('❌ Bottom list element not found');
+      }
+    }
+
+    function getConcatenatedListItemsText() {
+      const listItems = document.querySelectorAll('#listBotton li.list-group-item');
+      return Array.from(listItems)
+        .map(listItem => listItem.dataset.itemText || '')
+        .join('\n');
+    }
+
+    function handleError(message, error = '') {
+      console.error(message, error);
+    }
+
+    function addItemToBottomList(item) {
+      const listBottom = DOMUtils.findElementByIdOrNull('listBotton');
+      if (!listBottom) {
+        console.error('❌ Bottom list element not found');
+        return;
+      }
+      
+      const clone = item.cloneNode(true);
+      listBottom.appendChild(clone);
+    }
+</script> 

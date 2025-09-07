@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
+</head>
+<body>
+<div class="container p-4">
+    <form id="properties-form">
+        <!-- Seção das Secretárias -->
+        <div class="mb-4">
+            <h5 class="mb-3">Nome das Secretárias</h5>
+            <div class="form-group">
+                <label for="secretary13-input">Consultório 13:</label>
+                <input type="text" class="form-control" id="secretary13-input" value="<?= currentSecretary13 ?>">
+            </div>
+
+            <div class="form-group">
+                <label for="secretary12-input">Consultório 12:</label>
+                <input type="text" class="form-control" id="secretary12-input" value="<?= currentSecretary12 ?>">
+            </div>
+        </div>
+    </form>
+
+    <div class="d-flex justify-content-end mt-4">
+        <button type="button" class="btn btn-secondary mr-2" onclick="google.script.host.close()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="ok-button" onclick="submitForm()">OK</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * Esta função é chamada quando o botão "OK" é clicado
+     */
+    function submitForm() {
+        // Desabilita o botão para evitar cliques duplos
+        document.getElementById('ok-button').disabled = true;
+
+        // 1. Coleta os valores dos campos de secretárias
+        const name13 = document.getElementById('secretary13-input').value.trim();
+        const name12 = document.getElementById('secretary12-input').value.trim();
+        
+        // 2. Cria um objeto para enviar ao servidor
+        const formData = {
+            secretary13: name13,
+            secretary12: name12
+        };
+
+        console.log('Dados a serem salvos:', formData);
+
+        // 3. Envia o objeto para a função do servidor 'savePropertiesData'
+        google.script.run
+            .withSuccessHandler(function() {
+                // Fecha o diálogo se o servidor processar com sucesso
+                google.script.host.close();
+            })
+            .withFailureHandler(function(error) {
+                // Mostra um erro e reabilita o botão se falhar
+                alert('Erro ao salvar: ' + error.message);
+                document.getElementById('ok-button').disabled = false;
+            })
+            .savePropertiesData(formData);
+    }
+</script>
+</body>
+</html>

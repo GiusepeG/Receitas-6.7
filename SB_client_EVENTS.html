@@ -1,0 +1,569 @@
+<script>
+    /**
+     * Event Manager Service
+     * Centralizes all event handling and management
+     */
+    class EventManager {
+      constructor() {
+        this.isInitialized = false;
+        this.state = ApplicationState.getInstance();
+        this.uiService = new UIService();
+      }
+      
+      /**
+       * Sets up all event listeners for the application
+       */
+      setupAllEventListeners() {
+        if (this.isInitialized) {
+          console.warn('⚠️ Event listeners already initialized');
+          return;
+        }
+        
+
+        
+        this.setupBasicEventListeners();
+        this.setupListEventListeners();
+        this.setupSortableList();
+        
+        this.isInitialized = true;
+
+      }
+      
+      /**
+       * Sets up basic event listeners (buttons, input, global)
+       */
+      setupBasicEventListeners() {
+        const elements = this.getBasicElements();
+        
+        this.setupGlobalListener(elements.globalElement);
+        this.setupSearchInputListener(elements.searchInput);
+      }
+      
+      /**
+       * Gets basic DOM elements for event listeners
+       * @returns {Object} Object containing DOM elements
+       */
+      getBasicElements() {
+        return {
+          globalElement: DOMUtils.findElementByIdOrNull('global'),
+          searchInput: DOMUtils.findElementByIdOrNull('searchInputId')
+        };
+      }
+      
+      /**
+       * Sets up button event listeners
+       * @deprecated These buttons (action-insert-button, action-insert-format-button) were removed from the UI
+       * @param {Object} elements - DOM elements object
+       */
+      setupButtonListeners(elements) {
+        // Buttons action-insert-button and action-insert-format-button were removed from the UI
+        console.log('⚠️ setupButtonListeners is deprecated - buttons were removed from the UI');
+        return;
+      }
+      
+      /**
+       * Sets up global click listener
+       * @param {HTMLElement} globalElement - Global element
+       */
+      setupGlobalListener(globalElement) {
+        if (globalElement) {
+          globalElement.addEventListener('click', (e) => this.handleGlobalClick(e));
+        } else {
+          console.warn('⚠️ Element with ID global not found');
+        }
+      }
+      
+      /**
+       * Sets up search input listener
+       * @param {HTMLElement} searchInput - Search input element
+       */
+      setupSearchInputListener(searchInput) {
+        if (searchInput) {
+          searchInput.addEventListener('input', () => this.executeSearch());
+        } else {
+          console.warn('⚠️ Element with ID searchInputId not found');
+        }
+      }
+      
+      /**
+       * Sets up IA button listener
+       * @deprecated This button (action-ia-button) was removed from the UI
+       * @param {HTMLElement} iaButton - IA button element
+       */
+      setupIAButtonListener(iaButton) {
+        // Button action-ia-button was removed from the UI
+        console.log('⚠️ setupIAButtonListener is deprecated - button was removed from the UI');
+        return;
+      }
+      
+      /**
+       * Sets up list event listeners
+       */
+      setupListEventListeners() {
+        const topList = DOMUtils.findElementByIdOrNull('topList');
+        const listBottom = DOMUtils.findElementByIdOrNull('listBotton');
+        
+        if (topList) {
+          topList.addEventListener('click', (e) => this.handleTopListClick(e));
+        } else {
+          console.error('❌ topList not found');
+        }
+        
+        if (listBottom) {
+          listBottom.addEventListener('click', (e) => this.handleBottomListClick(e));
+        } else {
+          console.error('❌ listBotton not found');
+        }
+      }
+      
+      /**
+       * Sets up sortable list functionality
+       */
+      setupSortableList() {
+        const listBottom = DOMUtils.findElementByIdOrNull('listBotton');
+        
+        if (listBottom) {
+          new Sortable(listBottom, {
+            animation: 150,
+            onAdd: (evt) => this.handleItemAddedToList(evt)
+          });
+        } else {
+          console.error('❌ listBotton not found for Sortable initialization');
+        }
+      }
+      
+
+      
+      /**
+       * Handles insert button clicks
+       * @deprecated This function is no longer used as insert buttons were removed from the UI
+       * @param {boolean} shouldFormat - Whether to format the text
+       */
+      handleInsertClick(shouldFormat) {
+        // Insert buttons were removed from the UI
+        console.log('⚠️ handleInsertClick is deprecated - insert buttons were removed from the UI');
+        return;
+      }
+      
+      /**
+       * Handles global click events
+       * @param {Event} e - Click event
+       */
+      handleGlobalClick(e) {
+        // Ignore clicks on list items - they have their own handlers
+        if (this.isListItem(e.target) || e.target.closest('li.list-group-item')) {
+          return;
+        }
+        
+        if (this.isFilterButtonClicked(e.target)) {
+          this.sendTextToSearch(e.target.dataset.filterTarget, true);
+        } else if (this.isClearButtonClicked(e.target)) {
+          this.sendTextToSearch('');
+        }
+        
+        this.setFocusToSearch();
+      }
+      
+      /**
+       * Handles IA button click
+       * @deprecated This function is no longer used as IA button was removed from the UI
+       */
+      handleIAButtonClick() {
+        // IA button was removed from the UI
+        console.log('⚠️ handleIAButtonClick is deprecated - IA button was removed from the UI');
+        return;
+      }
+      
+      /**
+       * Handles top list click events
+       * @param {Event} e - Click event
+       */
+      handleTopListClick(e) {
+        if (this.isListItem(e.target)) {
+          e.preventDefault();
+          this.addItemToBottomList(e.target.closest('li.list-group-item'));
+          // Coloca o foco no input de busca após clicar em um item da topList
+          this.setFocusToSearch();
+        }
+      }
+      
+      /**
+       * Handles bottom list click events
+       * @param {Event} e - Click event
+       */
+      handleBottomListClick(e) {
+        if (this.isBadgeClicked(e.target)) {
+          this.removeListItem(e.target.closest('li'));
+        }
+      }
+      
+      /**
+       * Handles item added to sortable list
+       * @param {Object} evt - Sortable event
+       */
+      handleItemAddedToList(evt) {
+        const item = evt.item;
+        
+        // Adiciona o badge apenas se não houver um
+        if (!item.querySelector('.badge')) {
+          this.addBadge(item);
+        }
+        
+        this.maintainOriginalBackground(item);
+      }
+      
+      /**
+       * Checks if element is a list item
+       * @param {HTMLElement} element - Element to check
+       * @returns {boolean} True if element is a list item
+       */
+      isListItem(element) {
+        return element && element.matches('li.list-group-item, li.list-group-item *');
+      }
+      
+      /**
+       * Checks if filter button was clicked
+       * @param {HTMLElement} element - Element to check
+       * @returns {boolean} True if filter button was clicked
+       */
+      isFilterButtonClicked(element) {
+        return element.matches('.filter');
+      }
+      
+      /**
+       * Checks if clear button was clicked
+       * @param {HTMLElement} element - Element to check
+       * @returns {boolean} True if clear button was clicked
+       */
+      isClearButtonClicked(element) {
+        return element.matches('.clear');
+      }
+      
+      /**
+       * Checks if badge was clicked
+       * @param {HTMLElement} element - Element to check
+       * @returns {boolean} True if badge was clicked
+       */
+      isBadgeClicked(element) {
+        return element && element.matches('span.badge');
+      }
+      
+      /**
+       * Checks if an item is already in the list
+       * @param {HTMLElement} list - The list to check
+       * @param {string} itemTitle - The title of the item to check
+       * @returns {boolean} True if the item is in the list, false otherwise
+       */
+      isItemInList(list, itemTitle) {
+        const listItemElements = Array.from(list.getElementsByClassName('item-title'));
+        return listItemElements.some(itemElement => itemElement.textContent.trim() === itemTitle);
+      }
+      
+      /**
+       * Adds item to bottom list with dependency management
+       * @param {HTMLElement} listItem - List item to add
+       */
+      addItemToBottomList(listItem) {
+        const itemTitle = this.getItemText(listItem);
+        const bottomList = DOMUtils.findElementByIdOrNull('listBotton');
+
+        if (!bottomList || this.isItemInList(bottomList, itemTitle)) {
+          return;
+        }
+
+        // Adiciona temporariamente para fazer parte da leitura de dependências
+        // A função de clonagem é necessária para evitar mover o item da lista de cima
+        const tempItem = listItem.cloneNode(true);
+        bottomList.appendChild(tempItem);
+
+        const currentTitlesInBottomList = Array.from(bottomList.querySelectorAll('.item-title')).map(el => el.textContent.trim());
+        
+        const processedItems = new Set();
+        let orderedItems = [];
+
+        currentTitlesInBottomList.forEach(title => {
+          this.collectDependencies(title, processedItems, orderedItems);
+        });
+
+        // Limpa a lista para reconstruir na ordem correta
+        bottomList.innerHTML = ''; 
+
+        // Reconstrói a lista com os itens ordenados
+        orderedItems.forEach(title => {
+          const newItem = this.createListItem(title);
+          if (newItem) {
+            // O badge já é adicionado em createListItem. Apenas anexa o item.
+            bottomList.appendChild(newItem);
+          }
+        });
+
+        this.toggleListVisibility();
+      }
+      
+      /**
+       * Collects dependencies for an item recursively
+       * @param {string} itemTitle - Item title
+       * @param {Set} processedItems - Set of processed items to avoid infinite loops
+       * @param {Array} orderedItems - Array to store the final ordered items
+       */
+      collectDependencies(itemTitle, processedItems, orderedItems) {
+        // 1. Verificação de Segurança: Evita re-processamento e loops infinitos
+        if (processedItems.has(itemTitle)) {
+          return; 
+        }
+        processedItems.add(itemTitle);
+
+        // 2. A Investigação: Encontra o item na lista mestre
+        const items = this.state.getItems();
+        const item = items.find((i) => i.itemTitle === itemTitle);
+
+        if (!item) {
+          console.error(`Item "${itemTitle}" não encontrado no array de items.`);
+          // Mesmo que um item não seja encontrado, os outros devem ser processados.
+          // O item não encontrado simplesmente não será adicionado.
+          return;
+        }
+
+        // 3. A Chamada Recursiva: Investiga as dependências primeiro
+        if (item.requires && item.requires !== 'None') {
+          const dependencies = item.requires.split(',').map(s => s.trim());
+          dependencies.forEach(dep => {
+            if (dep) { // Garante que não processe dependências vazias
+              this.collectDependencies(dep, processedItems, orderedItems);
+            }
+          });
+        }
+        
+        // 4. Construindo a Ordem Correta: Adiciona o item atual após suas dependências
+        if (!orderedItems.includes(itemTitle)) {
+          orderedItems.push(itemTitle);
+        }
+      }
+      
+      /**
+       * Gets text content from list item
+       * @param {HTMLElement} listItem - List item element
+       * @returns {string} Item text
+       */
+      getItemText(listItem) {
+        return listItem.querySelector('.item-title').textContent.trim();
+      }
+      
+      /**
+       * Creates a new list item
+       * @param {string} itemTitle - Item title
+       * @returns {HTMLElement|null} Created list item or null
+       */
+      createListItem(itemTitle) {
+        const items = this.state.getItems();
+        const item = items.find((i) => i.itemTitle === itemTitle);
+        if (!item) {
+          console.error(`❌ Item "${itemTitle}" not found in items array`);
+          return null;
+        }
+        
+        const templateContent = DOMUtils.getTemplateContent('template-list-item');
+        if (!templateContent) {
+          console.error('❌ Template not found');
+          return null;
+        }
+        
+        const clonedItem = templateContent.cloneNode(true);
+        const itemTitleElement = clonedItem.querySelector('.item-title');
+        itemTitleElement.textContent = item.itemTitle;
+        
+        const listItemElement = clonedItem.querySelector('li');
+        listItemElement.setAttribute('data-item-text', item.itemText);
+        
+        const badgeElement = document.createElement('span');
+        badgeElement.className = 'badge text-bg-danger rounded-pill';
+        badgeElement.textContent = 'del';
+        listItemElement.appendChild(badgeElement);
+        
+        return clonedItem;
+      }
+      
+      /**
+       * Removes a list item
+       * @param {HTMLElement} item - Item to remove
+       */
+      removeListItem(item) {
+        item.parentNode.removeChild(item);
+        this.toggleListVisibility();
+      }
+      
+      /**
+       * Adds badge to item
+       * @param {HTMLElement} item - Item to add badge to
+       */
+      addBadge(item) {
+        const badge = document.createElement('span');
+        badge.className = 'badge text-bg-primary rounded-pill';
+        badge.textContent = 'del';
+        item.appendChild(badge);
+        return item;
+      }
+      
+      /**
+       * Maintains original background of item
+       * @param {HTMLElement} item - Item to maintain background for
+       */
+      maintainOriginalBackground(item) {
+        item.className = `list-group-item d-flex justify-content-between align-items-center ${item.className.replace('list-group-item-action', '')}`;
+      }
+      
+      /**
+       * Executes search functionality
+       */
+      executeSearch(filterTarget = null) {
+        const searchInput = this.getSearchInputValue();
+        
+        let resultsArray = searchInput.trim() === '' ? [] : this.filterItems(searchInput);
+        
+        // Se a busca foi iniciada por um filtro, reordena os resultados
+        if (filterTarget && resultsArray.length > 0) {
+          resultsArray = this.sortResults(resultsArray, filterTarget);
+        }
+        
+        this.populateSearchResults(resultsArray);
+      }
+      
+      /**
+       * Gets search input value
+       * @returns {string} Search input value
+       */
+      getSearchInputValue() {
+        return DOMUtils.getSearchInputValue();
+      }
+      
+      /**
+       * Filters items based on search input
+       * @param {string} searchInput - Search input
+       * @returns {Array} Filtered items
+       */
+      filterItems(searchInput) {
+        const items = this.state.getItems();
+        
+        const itemFilter = new ItemFilter(items);
+        const result = itemFilter.filterBySearchTerm(searchInput);
+        return result;
+      }
+      
+      /**
+       * Populates search results
+       * @param {Array} resultsArray - Results array
+       */
+      populateSearchResults(resultsArray) {
+        const uiBuilder = new UIBuilder();
+        return uiBuilder.populateSearchResults(resultsArray);
+      }
+      
+      /**
+       * Sends text to search input
+       * @param {string} text - Text to send to search
+       * @param {boolean} isFilterClick - Whether the call originates from a filter button click
+       */
+      sendTextToSearch(text, isFilterClick = false) {
+        this.setSearchInputValue(text + ' ');
+        this.executeSearch(isFilterClick ? text.trim() : null);
+      }
+      
+      /**
+       * Sets search input value
+       * @param {string} value - Value to set
+       */
+      setSearchInputValue(value) {
+        const input = DOMUtils.findElementByIdOrNull('searchInputId');
+        if (input) {
+          input.value = value;
+        } else {
+          console.error('❌ Search input not found');
+        }
+      }
+      
+      /**
+       * Sets focus to search input
+       */
+      setFocusToSearch() {
+        const input = DOMUtils.findElementByIdOrNull('searchInputId');
+        if (input) {
+          input.focus();
+        } else {
+          console.error('❌ Search input not found for setting focus');
+        }
+      }
+      
+      /**
+       * Toggles list visibility
+       */
+      toggleListVisibility() {
+        const topList = DOMUtils.findElementByIdOrNull('topList');
+        const listBottom = DOMUtils.findElementByIdOrNull('listBotton');
+        
+        if (listBottom && listBottom.children.length === 0) {
+          listBottom.classList.add('hide-element');
+        } else if (listBottom) {
+          listBottom.classList.remove('hide-element');
+        }
+      }
+      
+      /**
+       * Sorts results to prioritize items matching the filterTarget.
+       * @param {Array} results - The array of result items.
+       * @param {string} filterTarget - The filter target (e.g., 'MR').
+       * @returns {Array} The sorted array of results.
+       */
+      sortResults(results, filterTarget) {
+        const topItems = [];
+        const otherItems = [];
+        const lowerCaseFilterTarget = filterTarget.toLowerCase();
+
+        for (const item of results) {
+          if (item.itemSheet.toLowerCase() === lowerCaseFilterTarget) {
+            topItems.push(item);
+          } else {
+            otherItems.push(item);
+          }
+        }
+        return topItems.concat(otherItems);
+      }
+    }
+
+    // Global instance
+    const eventManager = new EventManager();
+
+    // Main event setup function
+    function setupAllEventListeners() {
+      return eventManager.setupAllEventListeners();
+    }
+
+    // Global function for dependency collection (for backward compatibility)
+    function collectDependencies(itemTitle, processedItems, orderedItems) {
+      return eventManager.collectDependencies(itemTitle, processedItems, orderedItems);
+    }
+
+    // Global functions for backward compatibility
+    function executeSearch() {
+      return eventManager.executeSearch();
+    }
+
+    function sendTextToSearch(text) {
+      return eventManager.sendTextToSearch(text);
+    }
+
+    function setFocusToSearch() {
+      return eventManager.setFocusToSearch();
+    }
+
+    function toggleListVisibility() {
+      return eventManager.toggleListVisibility();
+    }
+
+    function filterItems(searchInput) {
+      return eventManager.filterItems(searchInput);
+    }
+
+    function populateSearchResults(resultsArray) {
+      return eventManager.populateSearchResults(resultsArray);
+    }
+</script> 

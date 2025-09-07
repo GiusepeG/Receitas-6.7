@@ -1,0 +1,294 @@
+<script>
+    /**
+     * Wrapper function for Google Apps Script server communication
+     * Provides a Promise-based interface for google.script.run
+     */
+    function scriptRunPromise() {
+      return {
+        getSidebarData: () => {
+          return new Promise((resolve, reject) => {
+            google.script.run
+              .withSuccessHandler(resolve)
+              .withFailureHandler(reject)
+              .getSidebarData();
+          });
+        }
+      };
+    }
+
+    /**
+     * Application State Management - Singleton Pattern
+     * Centralizes all application data and provides methods for state updates
+     */
+    class ApplicationState {
+      constructor() {
+        if (ApplicationState.instance) {
+          return ApplicationState.instance;
+        }
+        
+        this.sheetData = null;
+        this.filterButtons = null;
+        this.items = [];
+        this.promptTitles = [];
+        this.allPrompts = {};
+        this.isLoading = false;
+        this.error = null;
+        
+        ApplicationState.instance = this;
+      }
+      
+      /**
+       * Gets the singleton instance
+       * @returns {ApplicationState} The singleton instance
+       */
+      static getInstance() {
+        if (!ApplicationState.instance) {
+          ApplicationState.instance = new ApplicationState();
+        }
+        return ApplicationState.instance;
+      }
+      
+      /**
+       * Updates the application state with fetched data
+       * @param {Object} data - The data object containing sheets, items, prompts
+       */
+      updateWithFetchedData(data) {
+        const { sheets, items, promptTitles, allPrompts } = data;
+
+        this.items = items;
+        this.promptTitles = promptTitles;
+        this.allPrompts = allPrompts;
+        this.sheetData = sheets;
+
+      }
+      
+      /**
+       * Gets items array
+       * @returns {Array} Items array
+       */
+      getItems() {
+        return this.items;
+      }
+      
+      /**
+       * Gets prompt titles
+       * @returns {Array} Prompt titles array
+       */
+      getPromptTitles() {
+        return this.promptTitles;
+      }
+      
+      /**
+       * Gets all prompts
+       * @returns {Object} All prompts object
+       */
+      getAllPrompts() {
+        return this.allPrompts;
+      }
+      
+      /**
+       * Gets sheet data
+       * @returns {Array} Sheet data array
+       */
+      getSheetData() {
+        return this.sheetData;
+      }
+      
+      /**
+       * Sets loading state
+       * @param {boolean} loading - Loading state
+       */
+      setLoading(loading) {
+        this.isLoading = loading;
+      }
+      
+      /**
+       * Gets loading state
+       * @returns {boolean} Loading state
+       */
+      isLoading() {
+        return this.isLoading;
+      }
+    }
+
+    /**
+     * Data Service for handling server communication
+     */
+    class DataService {
+      /**
+       * Fetches all necessary data from the server.
+       * @returns {Promise<object>} A promise that resolves with the data object.
+       */
+      async fetchAllData() {
+        try {
+          const jsonResponse = await scriptRunPromise().getSidebarData();
+          const data = JSON.parse(jsonResponse);
+
+          // Verifica se o servidor enviou uma mensagem de erro específica
+          if (data.error) {
+            console.error('🔴 ERRO REPORTADO PELO SERVIDOR:', data.error);
+          }
+
+          return data;
+        } catch (error) {
+          console.error('❌ Erro de comunicação ao buscar dados:', error);
+          throw new Error(`Failed to fetch data: ${error.message}`);
+        }
+      }
+    }
+
+    /**
+     * UI Service for managing user interface operations
+     */
+    class UIService {
+      constructor() {
+        this.state = ApplicationState.getInstance();
+      }
+      
+      /**
+       * Populates the actions checkboxes with prompt titles
+       * @deprecated This function is no longer used as actionsCheckboxList element was removed
+       */
+      populateActionsCheckboxes() {
+        // Element actionsCheckboxList was removed from the UI
+        console.log('⚠️ populateActionsCheckboxes is deprecated - actionsCheckboxList element was removed');
+        return;
+      }
+      
+      /**
+       * Creates a checkbox element for the actions list
+       * @deprecated This function is no longer used as actionsCheckboxList element was removed
+       * @param {string} title - The prompt title
+       * @param {number} index - The option index
+       * @returns {HTMLLIElement} The created checkbox list item element
+       */
+      createActionCheckbox(title, index) {
+        // Element actionsCheckboxList was removed from the UI
+        console.log('⚠️ createActionCheckbox is deprecated - actionsCheckboxList element was removed');
+        return null;
+      }
+      
+      /**
+       * Gets the selected prompt content from the checked checkboxes
+       * @deprecated This function is no longer used as actionsCheckboxList element was removed
+       * @returns {Object|null} The selected prompt content or null
+       */
+      getSelectedPromptContent() {
+        // Element actionsCheckboxList was removed from the UI
+        console.log('⚠️ getSelectedPromptContent is deprecated - actionsCheckboxList element was removed');
+        return null;
+      }
+    }
+
+    /**
+     * Main Sidebar Controller
+     * Orchestrates the initialization and management of the sidebar
+     */
+    class SidebarController {
+      constructor() {
+        this.state = ApplicationState.getInstance();
+        this.dataService = new DataService();
+        this.uiService = new UIService();
+      }
+      
+      /**
+       * Initializes the sidebar with all necessary data and UI
+       */
+      async initialize() {
+
+        try {
+          this.state.setLoading(true);
+          
+          let data;
+          
+          // Verifica se há dados pré-carregados do servidor
+          if (typeof preloadedData !== 'undefined' && preloadedData && Object.keys(preloadedData).length > 0) {
+            data = preloadedData;
+          } else {
+            data = await this.dataService.fetchAllData();
+          }
+          
+          this.state.updateWithFetchedData(data);
+          
+          // Renderizar os botões de filtro
+          if (typeof buildFilterButtons === 'function' && data.sheets) {
+            buildFilterButtons(data.sheets);
+          }
+          
+          // Removed: populateActionsCheckboxes - element was removed from UI
+          
+          this.sendInitialSearchText();
+          
+          this.hideLoadingSpinner();
+          
+        } catch (error) {
+          console.error('❌ Error initializing sidebar:', error);
+          this.handleError('Failed to initialize sidebar', error);
+        } finally {
+          this.state.setLoading(false);
+        }
+      }
+      
+      /**
+       * Sends initial search text to trigger first search
+       */
+      sendInitialSearchText() {
+        if (typeof sendTextToSearch === 'function') {
+          sendTextToSearch(initialSearchInput);
+        } else {
+          console.error('❌ sendTextToSearch função não encontrada');
+        }
+      }
+      
+      /**
+       * Hides the loading spinner
+       */
+      hideLoadingSpinner() {
+        if (typeof hideLoadingSpinner === 'function') {
+          hideLoadingSpinner();
+        } else {
+          console.error('❌ hideLoadingSpinner função não encontrada');
+        }
+      }
+      
+      /**
+       * Handles errors in a centralized way
+       * @param {string} message - Error message
+       * @param {Error} error - Error object
+       */
+      handleError(message, error) {
+        console.error('💥 handleError chamada com:', message, error);
+        if (typeof handleError === 'function') {
+          handleError(message, error);
+        } else {
+          console.error('❌ handleError função não encontrada');
+        }
+      }
+    }
+
+    // Global instances - Singleton pattern
+    const applicationState = ApplicationState.getInstance();
+    const dataService = new DataService();
+    const uiService = new UIService();
+    const sidebarController = new SidebarController();
+
+    // Main initialization function
+    async function initializeSidebar() {
+      try {
+        const result = await sidebarController.initialize();
+        return result;
+      } catch (error) {
+        console.error('❌ initializeSidebar falhou:', error);
+        throw error;
+      }
+    }
+
+    // Search execution function - Moved to EventManager
+    function executeSearch() {
+      const searchInput = getSearchInputValue();
+      
+      const resultsArray = searchInput === '' ? [] : filterItems(searchInput);
+      
+      populateSearchResults(resultsArray);
+    }
+</script> 

@@ -1,0 +1,436 @@
+<script>
+  // Variáveis globais
+  let selectedPrompts = [];
+  let selectedH1sWithEligibleH2s = [];
+  let processingQueue = [];
+  let progressInterval;
+  let currentProgress = 0;
+  let totalPairs = 0;
+  
+  document.addEventListener('DOMContentLoaded', function() {
+    // Carrega os dados que já estão disponíveis via scriplet
+    initializeModal();
+    
+    // Event listeners para os containers
+    document.getElementById('promptsContainer').addEventListener('click', handlePromptClick);
+    document.getElementById('pairsContainer').addEventListener('click', handlePairClick);
+  });
+
+  window.addEventListener('beforeunload', function() {
+    stopProgressSimulation();
+  });
+
+  /**
+   * Inicializa o modal com os dados já carregados
+   */
+  function initializeModal() {
+    console.log('🚀 Inicializando modal com dados pré-carregados');
+    
+    // Os dados já estão disponíveis nas variáveis globais via scriplet
+    if (promptsArray && promptsArray.length > 0) {
+      console.log('✅ Prompts disponíveis:', promptsArray.length);
+      renderPrompts();
+    } else {
+      console.error('❌ Nenhum prompt disponível');
+      document.getElementById('promptsContainer').innerHTML = 
+        '<div class="text-center p-3"><p class="text-danger">Nenhum prompt disponível</p></div>';
+    }
+    
+    if (uniqueHeadline1s && uniqueHeadline1s.length > 0) {
+      console.log('✅ H1s com H2s elegíveis disponíveis:', uniqueHeadline1s.length);
+      renderH1sWithEligibleH2s();
+    } else {
+      console.error('❌ Nenhum H1 com H2s elegíveis disponível');
+      document.getElementById('pairsContainer').innerHTML = 
+        '<div class="text-center p-3"><p class="text-danger">Nenhum paciente com H2s elegíveis disponível</p></div>';
+    }
+  }
+
+  function renderPrompts() {
+    const container = document.getElementById('promptsContainer');
+    
+    if (!promptsArray || promptsArray.length === 0) {
+      container.innerHTML = '<div class="text-center p-3"><p class="text-muted">Nenhum prompt disponível.</p></div>';
+      return;
+    }
+
+    // Criar array com índices e prompts para manter referência aos índices originais
+    const promptsWithIndex = promptsArray.map((prompt, index) => ({
+      ...prompt,
+      originalIndex: index
+    }));
+
+    // Ordenar alfabeticamente pelo optionText (prompt-title)
+    const sortedPrompts = promptsWithIndex.sort((a, b) => 
+      a.optionText.localeCompare(b.optionText, 'pt-BR', { sensitivity: 'base' })
+    );
+
+    container.innerHTML = sortedPrompts.map((prompt, displayIndex) => `
+      <div class="prompt-option p-2 ${selectedPrompts.includes(prompt.originalIndex) ? 'selected' : ''}" data-index="${prompt.originalIndex}">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" 
+                 id="prompt${prompt.originalIndex}" value="${prompt.originalIndex}"
+                 ${selectedPrompts.includes(prompt.originalIndex) ? 'checked' : ''}>
+          <label class="form-check-label" for="prompt${prompt.originalIndex}">
+            <div class="prompt-title">${prompt.optionText}</div>
+            <div class="prompt-description">${prompt.fromHeadline2} → ${prompt.toHeadline2}</div>
+          </label>
+        </div>
+      </div>
+    `).join('');
+    
+    updateConfirmButton();
+  }
+
+  function renderH1sWithEligibleH2s() {
+    const container = document.getElementById('pairsContainer');
+    const noPairsDiv = document.getElementById('noPairsMessage');
+    const selectAllBtn = document.getElementById('selectAllPatientsBtn');
+    
+    if (!uniqueHeadline1s || uniqueHeadline1s.length === 0) {
+      container.style.display = 'none';
+      noPairsDiv.style.display = 'block';
+      selectAllBtn.style.display = 'none';
+      noPairsDiv.innerHTML = `
+        <h6>Nenhum paciente com H2s elegíveis encontrado</h6>
+        <p class="small">Nenhum paciente possui H2s compatíveis com os prompts disponíveis.</p>
+      `;
+      return;
+    }
+
+    container.style.display = 'block';
+    noPairsDiv.style.display = 'none';
+    
+    // Lógica de pré-seleção: se tiver apenas 1 item, já vem pré-selecionado
+    if (uniqueHeadline1s.length === 1 && selectedH1sWithEligibleH2s.length === 0) {
+      selectedH1sWithEligibleH2s = [0];
+      selectAllBtn.style.display = 'none';
+    } else if (uniqueHeadline1s.length > 1) {
+      selectAllBtn.style.display = 'block';
+    } else {
+      selectAllBtn.style.display = 'none';
+    }
+    
+    container.innerHTML = uniqueHeadline1s.map((h1Item, index) => `
+      <div class="pair-option p-2 ${selectedH1sWithEligibleH2s.includes(index) ? 'selected' : ''}" data-index="${index}">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" 
+                 id="headline1_${index}" value="${index}"
+                 ${selectedH1sWithEligibleH2s.includes(index) ? 'checked' : ''}>
+          <label class="form-check-label" for="headline1_${index}">
+            <div class="headline1">${h1Item.headline1}</div>
+            <div class="content-preview small text-muted mt-1">
+              H2s elegíveis: ${h1Item.eligibleH2s.join(', ')}
+            </div>
+          </label>
+        </div>
+      </div>
+    `).join('');
+    
+    // Atualizar o estado do botão "Selecionar todos"
+    updateSelectAllButton();
+    
+    updateConfirmButton();
+  }
+
+  function selectAllPatients() {
+    if (!uniqueHeadline1s || uniqueHeadline1s.length === 0) {
+      return;
+    }
+    
+    // Selecionar todos os pacientes
+    selectedH1sWithEligibleH2s = uniqueHeadline1s.map((_, index) => index);
+    
+    // Atualizar visualmente todos os checkboxes
+    const container = document.getElementById('pairsContainer');
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    const pairOptions = container.querySelectorAll('.pair-option');
+    
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = true;
+    });
+    
+    pairOptions.forEach(option => {
+      option.classList.add('selected');
+    });
+    
+    // Atualizar o botão de confirmação
+    updateConfirmButton();
+    
+    // Trocar o texto do botão para "Desmarcar todos"
+    const selectAllBtn = document.getElementById('selectAllPatientsBtn');
+    selectAllBtn.textContent = 'Desmarcar todos';
+    selectAllBtn.onclick = () => deselectAllPatients();
+  }
+
+  function deselectAllPatients() {
+    // Desmarcar todos os pacientes
+    selectedH1sWithEligibleH2s = [];
+    
+    // Atualizar visualmente todos os checkboxes
+    const container = document.getElementById('pairsContainer');
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    const pairOptions = container.querySelectorAll('.pair-option');
+    
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    
+    pairOptions.forEach(option => {
+      option.classList.remove('selected');
+    });
+    
+    // Atualizar o botão de confirmação
+    updateConfirmButton();
+    
+    // Trocar o texto do botão para "Selecionar todos"
+    const selectAllBtn = document.getElementById('selectAllPatientsBtn');
+    selectAllBtn.textContent = 'Selecionar todos';
+    selectAllBtn.onclick = () => selectAllPatients();
+  }
+
+  function updateSelectAllButton() {
+    const selectAllBtn = document.getElementById('selectAllPatientsBtn');
+    if (!uniqueHeadline1s || uniqueHeadline1s.length <= 1) {
+      selectAllBtn.style.display = 'none';
+      return;
+    }
+    
+    selectAllBtn.style.display = 'block';
+    
+    // Se todos estão selecionados, mostrar "Desmarcar todos"
+    if (selectedH1sWithEligibleH2s.length === uniqueHeadline1s.length) {
+      selectAllBtn.textContent = 'Desmarcar todos';
+      selectAllBtn.onclick = () => deselectAllPatients();
+    } else {
+      selectAllBtn.textContent = 'Selecionar todos';
+      selectAllBtn.onclick = () => selectAllPatients();
+    }
+  }
+  
+  function handlePromptClick(event) {
+    const promptOption = event.target.closest('.prompt-option');
+    if (!promptOption) return;
+
+    setTimeout(() => {
+      const checkbox = promptOption.querySelector('input[type="checkbox"]');
+      if (!checkbox) return;
+      
+      const index = parseInt(promptOption.dataset.index, 10);
+      const isChecked = checkbox.checked;
+
+      if (isChecked) {
+        if (!selectedPrompts.includes(index)) {
+          selectedPrompts.push(index);
+        }
+        promptOption.classList.add('selected');
+      } else {
+        selectedPrompts = selectedPrompts.filter(i => i !== index);
+        promptOption.classList.remove('selected');
+      }
+      
+      updateConfirmButton();
+    }, 0);
+  }
+
+  function handlePairClick(event) {
+    const pairOption = event.target.closest('.pair-option');
+    if (!pairOption) return;
+
+    setTimeout(() => {
+      const checkbox = pairOption.querySelector('input[type="checkbox"]');
+      if (!checkbox) return;
+      
+      const index = parseInt(pairOption.dataset.index, 10);
+      const isChecked = checkbox.checked;
+
+      if (isChecked) {
+        if (!selectedH1sWithEligibleH2s.includes(index)) {
+          selectedH1sWithEligibleH2s.push(index);
+        }
+        pairOption.classList.add('selected');
+      } else {
+        selectedH1sWithEligibleH2s = selectedH1sWithEligibleH2s.filter(i => i !== index);
+        pairOption.classList.remove('selected');
+      }
+      
+      // Atualizar o estado do botão "Selecionar todos"
+      updateSelectAllButton();
+      
+      updateConfirmButton();
+    }, 0);
+  }
+
+  function updateConfirmButton() {
+    const confirmBtn = document.getElementById('confirmBtn');
+    const hasPrompts = selectedPrompts.length > 0;
+    const hasH1s = selectedH1sWithEligibleH2s.length > 0;
+    
+    confirmBtn.disabled = !hasPrompts || !hasH1s;
+    
+    if (hasPrompts && hasH1s) {
+      confirmBtn.textContent = `Processar (${selectedPrompts.length} prompts, ${selectedH1sWithEligibleH2s.length} pacientes)`;
+    } else if (!hasPrompts && !hasH1s) {
+      confirmBtn.textContent = 'Processar';
+    } else if (!hasPrompts) {
+      confirmBtn.textContent = 'Processar (selecione prompts)';
+    } else {
+      confirmBtn.textContent = 'Processar (selecione pacientes)';
+    }
+  }
+
+  function confirmSelection() {
+    if (selectedPrompts.length === 0) {
+      alert('❌ Por favor, selecione pelo menos um prompt.');
+      return;
+    }
+
+    if (selectedH1sWithEligibleH2s.length === 0) {
+      alert('❌ Por favor, selecione pelo menos um paciente.');
+      return;
+    }
+
+    // Construir pilha de processamento
+    processingQueue = buildProcessingQueue();
+    
+    if (processingQueue.length === 0) {
+      alert('❌ Nenhum processamento válido encontrado. Verifique se os prompts selecionados são compatíveis com os H2s elegíveis dos pacientes.');
+      return;
+    }
+
+    // Executar processamento imediatamente
+    executeProcessingQueue(processingQueue);
+  }
+
+  function buildProcessingQueue() {
+    const queue = [];
+    
+    selectedH1sWithEligibleH2s.forEach(h1Index => {
+      const h1Item = uniqueHeadline1s[h1Index];
+      
+      selectedPrompts.forEach(promptIndex => {
+        const prompt = promptsArray[promptIndex];
+        
+        // Verificar se este H1 tem o fromH2 que o prompt precisa
+        if (h1Item.eligibleH2s.includes(prompt.fromHeadline2)) {
+          queue.push({
+            headline1: h1Item.headline1,
+            prompt: prompt,
+            fromH2: prompt.fromHeadline2,
+            toH2: prompt.toHeadline2
+          });
+        }
+      });
+    });
+    
+    return queue;
+  }
+
+
+
+  function executeProcessingQueue(queue) {
+    // Preparar dados para o servidor no formato esperado
+    const uniqueH1s = [...new Set(queue.map(item => item.headline1))];
+    const uniquePrompts = [];
+    const promptsSet = new Set();
+    
+    queue.forEach(item => {
+      const promptKey = `${item.prompt.fromHeadline2}|${item.prompt.toHeadline2}`;
+      if (!promptsSet.has(promptKey)) {
+        promptsSet.add(promptKey);
+        uniquePrompts.push(item.prompt);
+      }
+    });
+    
+    const processingData = {
+      headline1s: uniqueH1s.map(h1 => ({ headline1: h1 })),
+      prompts: uniquePrompts,
+      requireAugmentedContext: document.getElementById('augmentedContextCheck').checked
+    };
+
+    console.log('Executando pilha de processamento:', processingData);
+
+    totalPairs = queue.length; // Adicione esta linha
+
+    showProgress();
+    startProgressSimulation();
+
+    google.script.run
+      .withSuccessHandler(onSelectionConfirmed)
+      .withFailureHandler(onSelectionError)
+      .processSequentialPromptsForPairs(processingData);
+  }
+
+  function startProgressSimulation() {
+    currentProgress = 0;
+    updateProgress(0, 'Iniciando processamento...');
+    const estimatedTimePerPair = 4000;
+    const totalEstimatedTime = totalPairs * estimatedTimePerPair;
+    const updateInterval = 200;
+    const progressIncrement = (updateInterval / totalEstimatedTime) * 100;
+    
+    progressInterval = setInterval(() => {
+      currentProgress += progressIncrement;
+      if (currentProgress >= 95) {
+        currentProgress = 95;
+        clearInterval(progressInterval);
+      }
+      let status = 'Aplicando formatação...';
+      if (currentProgress < 20) status = 'Preparando dados...';
+      else if (currentProgress < 40) status = 'Processando com IA...';
+      else if (currentProgress < 60) status = 'Atualizando documento...';
+      else if (currentProgress < 80) status = 'Finalizando processamento...';
+      updateProgress(currentProgress, status);
+    }, updateInterval);
+  }
+
+  function stopProgressSimulation() {
+    if (progressInterval) {
+      clearInterval(progressInterval);
+      progressInterval = null;
+    }
+  }
+
+  function showProgress() {
+    document.querySelector('.two-columns').style.display = 'none';
+    document.getElementById('progressContainer').style.display = 'block';
+    const confirmBtn = document.getElementById('confirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Processando...';
+  }
+
+  function updateProgress(percentage, status) {
+    const progressBar = document.getElementById('progressBar');
+    const progressStatus = document.getElementById('progressStatus');
+    progressBar.style.width = percentage + '%';
+    progressBar.setAttribute('aria-valuenow', percentage);
+    progressBar.textContent = Math.round(percentage) + '%';
+    progressStatus.textContent = status;
+  }
+
+  function hideProgress() {
+    stopProgressSimulation();
+    document.getElementById('progressContainer').style.display = 'none';
+    const confirmBtn = document.getElementById('confirmBtn');
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'OK';
+  }
+
+  function onSelectionConfirmed(result) {
+    console.log('Processamento concluído:', result);
+    updateProgress(100, 'Processamento concluído!');
+    setTimeout(() => {
+      google.script.host.close();
+    }, 1500);
+  }
+
+  function onSelectionError(error) {
+    console.error('Erro no processamento:', error);
+    hideProgress();
+    alert('❌ Erro no processamento: ' + error.message);
+  }
+
+  function cancelSelection() {
+    google.script.host.close();
+  }
+</script> 

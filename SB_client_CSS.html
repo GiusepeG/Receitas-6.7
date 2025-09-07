@@ -1,0 +1,114 @@
+<style>
+    #loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 10000;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(255, 255, 255, 0.9);
+    }
+  
+    body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        padding-bottom: 60px; /* Para garantir espaço para o botão fixo */
+    }
+  
+    .sortable-container {
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: center;
+        border: none; /* Remove bordas adicionais */
+        min-height: 0; /* Remove altura mínima */
+    }
+  
+    .sortable-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        background-color: #f9f9f9;
+        max-width: 400px;
+        min-height: 0; /* Remove altura mínima */
+    }
+  
+    .sortable-list li {
+        padding: 10px;
+        border: 1px solid #ddd;
+        text-overflow: ellipsis;
+        box-sizing: border-box;
+        margin: 0;
+    }
+  
+    .cursor-crosshair li {
+        cursor: crosshair; /* Cursor em forma de cruz na lista top */
+    }
+  
+    .cursor-move li {
+        cursor: move; /* Cursor de movimentação na lista bottom */
+    }
+  
+    .badge {
+        cursor: pointer; /* Cursor de mãozinha no badge */
+    }
+  
+    .fixed-footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #f8f9fa;
+        text-align: center;
+        padding: 10px;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    }
+  
+    .sortable-list li {
+        padding: 2px 5px;
+        font-size: 14px;
+    }
+  
+    /* Remove bordas, margens e altura mínima quando o #listBotton estiver vazio */
+    ul#listBotton:empty {
+        border: none;
+        margin: 0;
+        padding: 0;
+        min-height: 0; /* Remove altura mínima */
+    }
+  
+    /* Remove bordas, margens e altura mínima de listas vazias */
+    ul.sortable-list:empty {
+        border: none;
+        margin: 0;
+        padding: 0;
+        min-height: 0; /* Remove altura mínima */
+    }
+  
+    /* Remove bordas, margens e padding dos contêineres de listas vazias */
+    div.sortable-container:has(ul:empty) {
+        border: none;
+        margin: 0;
+        padding: 0;
+        min-height: 0; /* Remove altura mínima */
+    }
+  
+    /* Garantir que o contêiner flex não tenha altura mínima */
+    .sortable-container {
+        min-height: 0;
+    }
+    /* Classe para ocultar o elemento */
+    .hide-element {
+        display: none !important;
+    }
+  
+    /* Estilos para os checkboxes de ações - REMOVIDO */
+    /* Os elementos actionsCheckboxContainer e actionsCheckboxList foram removidos da UI */
+  
+
+  
+</style>
+  

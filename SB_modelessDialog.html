@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+      }
+      .container {
+        padding: 1rem;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body onunload="handleDialogClose()">
+    <div class="container">
+      <p>Há texto selecionado no documento. Por favor, posicione o cursor onde deseja inserir o texto (sem selecionar nada) e o botão será ativado.</p>
+      <div class="d-flex mt-3">
+        <button id="cancelButton" class="btn btn-secondary w-100">Cancelar</button>
+        <button id="insertButton" class="btn btn-primary w-100 ml-2" disabled>Inserir Aqui</button>
+      </div>
+      <div id="error-message" class="alert alert-danger mt-3" role="alert" style="display: none; font-size: 0.9rem; padding: 0.5rem 1rem;"></div>
+    </div>
+    
+    <script>
+      const textToInsert = '<?= textToInsert ?>';
+      const shouldFormat = <?= shouldFormat ?>;
+      const insertButton = document.getElementById('insertButton');
+      const cancelButton = document.getElementById('cancelButton');
+      const errorDiv = document.getElementById('error-message');
+      let selectionPollInterval;
+
+      // Inicia a verificação da seleção quando o diálogo carrega
+      window.addEventListener('load', function() {
+        selectionPollInterval = setInterval(pollForSelection, 1500); // Verifica a cada 1.5 segundos
+      });
+
+      // Tenta registrar o evento de limpeza de forma mais robusta
+      window.addEventListener('unload', handleDialogClose);
+
+      function pollForSelection() {
+        google.script.run
+          .withSuccessHandler(function(hasSelection) {
+            // Habilita ou desabilita o botão com base no estado atual da seleção
+            insertButton.disabled = hasSelection;
+            if (!hasSelection && insertButton.textContent !== 'Inserir Aqui') {
+              insertButton.textContent = 'Inserir Aqui';
+            }
+          })
+          .withFailureHandler(function(error) {
+            console.error("Erro ao verificar seleção: ", error);
+            clearInterval(selectionPollInterval); // Para em caso de erro
+          })
+          .hasActiveSelection();
+      }
+
+      cancelButton.addEventListener('click', function() {
+        handleDialogClose();
+        google.script.host.close();
+      });
+
+      insertButton.addEventListener('click', function() {
+        // Para a verificação ao iniciar a inserção
+        clearInterval(selectionPollInterval);
+        
+        // Oculta a mensagem de erro em uma nova tentativa
+        errorDiv.style.display = 'none';
+        errorDiv.textContent = '';
+        
+        this.disabled = true;
+        this.textContent = 'Inserindo...';
+
+        const data = {
+          text: textToInsert,
+          shouldFormat: shouldFormat
+        };
+
+        google.script.run
+          .withSuccessHandler(function() {
+            // Marca o sucesso e então fecha o diálogo. A sidebar cuidará do resto.
+            google.script.run
+              .withSuccessHandler(function() {
+                google.script.host.close();
+              })
+              .setSuccessAndCloseFlags();
+          })
+          .withFailureHandler(function(error) {
+            // Exibe a mensagem de erro dentro do diálogo
+            errorDiv.textContent = error.message;
+            errorDiv.style.display = 'block';
+            
+            // Reabilita o botão
+            insertButton.disabled = false;
+            insertButton.textContent = 'Inserir Aqui';
+          })
+          .insertTextAtCursor(JSON.stringify(data));
+      });
+
+      function handleDialogClose() {
+        if (selectionPollInterval) {
+          clearInterval(selectionPollInterval);
+        }
+        google.script.run.setDialogClosedFlag();
+      }
+    </script>
+  </body>
+</html> 

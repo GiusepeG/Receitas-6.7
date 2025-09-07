@@ -1,0 +1,423 @@
+<script>
+    /**
+     * Action Handler Service
+     * Handles insert and IA button actions
+     */
+    class ActionHandler {
+      constructor() {
+        this.state = ApplicationState.getInstance();
+        this.uiService = new UIService();
+        this.dialogPollInterval = null; // Para o polling do diálogo
+        this.appendDialogPollInterval = null; // Para o polling do diálogo de append
+      }
+      
+      /**
+       * Handles insert action with optional formatting
+       * @param {boolean} shouldFormat - Whether to format the text
+       */
+      runInsert(shouldFormat) {
+        // Mostra o spinner de carregamento
+        showLoadingSpinner();
+        
+        const concatenatedText = this.getConcatenatedListItemsText(); 
+    
+        const obj = {
+          text: concatenatedText,
+          shouldFormat: shouldFormat
+        };
+        
+    
+        google.script.run
+          .withSuccessHandler((status) => {
+            
+            // Em qualquer caso de sucesso ou abertura de diálogo, consideramos a operação no cliente como bem-sucedida.
+            // A responsabilidade de limpar a lista ou esperar é tratada.
+            if (status === "INSERTED_DIRECTLY" || status === "FORMATTED_ONLY") {
+              this.handleInsertSuccess();
+            } else if (status === "DIALOG_OPENED") {
+              // Apenas esconde o spinner, mas começa a verificar o status do diálogo
+              hideLoadingSpinner();
+              enableActionButtons();
+              this.startDialogPolling();
+            } else {
+              // Trata outros casos como falha para segurança.
+              this.handleInsertError({ message: "A operação falhou ou retornou um estado inesperado." });
+            }
+          })
+          .withFailureHandler((error) => {
+            this.handleInsertError(error);
+          })
+          .insertTextAndFormat(JSON.stringify(obj));
+      }
+      
+      /**
+       * Handles successful insert operation
+       */
+      handleInsertSuccess() {
+        clearListBotton();
+        enableActionButtons();
+        hideLoadingSpinner();
+      }
+      
+      /**
+       * Handles insert operation error
+       * @param {Error} error - Error object
+       */
+      handleInsertError(error) {
+        enableActionButtons();
+        console.error("❌ Falha na operação:", error);
+        alert("Ocorreu um erro ao processar a solicitação.");
+        hideLoadingSpinner();
+      }
+      
+      /**
+       * Handles IA button click
+       * @deprecated This function is no longer used as actionsCheckboxList element was removed
+       */
+      handleIaButtonClick() {
+        // Element actionsCheckboxList was removed from the UI
+        console.log('⚠️ handleIaButtonClick is deprecated - actionsCheckboxList element was removed');
+        alert('❌ Funcionalidade de IA foi desativada temporariamente.');
+        return;
+      }
+      
+      /**
+       * Gets concatenated text from list items
+       * @returns {string} Concatenated text
+       */
+      getConcatenatedListItemsText() {
+        const listItems = document.querySelectorAll('#listBotton li.list-group-item');
+        return Array.from(listItems)
+          .map(listItem => listItem.dataset.itemText || '')
+          .join('\n');
+      }
+
+      /**
+       * Inicia a verificação periódica do status do diálogo.
+       */
+      startDialogPolling() {
+        if (this.dialogPollInterval) {
+          clearInterval(this.dialogPollInterval);
+        }
+        this.dialogPollInterval = setInterval(() => {
+          google.script.run
+            .withSuccessHandler((status) => {
+              if (status.closed) {
+                clearInterval(this.dialogPollInterval);
+                if (status.inserted) {
+                  this.handleInsertSuccess(); // Limpa a lista se a inserção foi bem-sucedida
+                }
+              }
+            })
+            .withFailureHandler((err) => {
+              console.error("Error polling dialog status:", err);
+              clearInterval(this.dialogPollInterval);
+            })
+            .getDialogStatus();
+        }, 2000); // Verifica a cada 2 segundos
+      }
+
+      /**
+       * Métodos para os botões do grid do rodapé
+       */
+      handleBtnAppendClick() {
+        // Ativa o spinner imediatamente ao clicar
+        showLoadingSpinner();
+        
+        // Verifica se a lista está vazia
+        const listItems = document.querySelectorAll('#listBotton li.list-group-item');
+        
+        if (listItems.length === 0) {
+          // Lista vazia - apenas executa formatação
+          google.script.run
+            .withSuccessHandler(() => {
+              hideLoadingSpinner();
+              enableActionButtons();
+            })
+            .withFailureHandler((error) => {
+              console.error('❌ Erro na formatação:', error);
+              alert('Erro ao formatar documento: ' + error.message);
+              hideLoadingSpinner();
+              enableActionButtons();
+            })
+            .executeFormat();
+          
+          return;
+        }
+        
+        // Lista não está vazia - valida e executa append em uma única operação
+        const concatenatedText = this.getConcatenatedListItemsTextForAppend();
+        const obj = {
+          text: concatenatedText,
+          shouldFormat: true // Append sempre formata
+        };
+        
+        google.script.run
+          .withSuccessHandler((result) => {
+            
+            if (result.success) {
+              // Operação bem-sucedida - limpa lista e finaliza
+              this.handleAppendSuccess();
+            } else {
+              // Operação falhou - verifica se precisa abrir diálogo
+              if (result.action === 'show_dialog') {
+                // Múltiplos H1s encontrados - abrir diálogo de seleção
+                google.script.run
+                  .withSuccessHandler(() => {
+                    // Diálogo foi aberto com sucesso
+                    this.handleAppendSuccess(); // Limpar lista após abrir diálogo
+                  })
+                  .withFailureHandler((error) => {
+                    console.error('❌ Erro ao abrir diálogo de seleção:', error);
+                    alert('Erro ao abrir diálogo de seleção: ' + error.message);
+                    hideLoadingSpinner();
+                    enableActionButtons();
+                  })
+                  .openAppendChoiceDialog(result.uniqueHeadline1s, result.textToInsert, result.shouldFormat);
+              } else {
+                // Outros tipos de erro - mostra mensagem e cancela
+                alert('❌ ' + result.message);
+                hideLoadingSpinner();
+                enableActionButtons();
+              }
+            }
+          })
+          .withFailureHandler((error) => {
+            console.error('❌ Erro na operação:', error);
+            alert('Erro ao processar operação: ' + error.message);
+            hideLoadingSpinner();
+            enableActionButtons();
+          })
+          .validateAndExecuteAppend(JSON.stringify(obj));
+      }
+      
+
+      
+      /**
+       * Handles successful append operation (replica do handleInsertSuccess)
+       */
+      handleAppendSuccess() {
+        clearListBotton();
+        enableActionButtons();
+        hideLoadingSpinner();
+      }
+      
+      /**
+       * Handles append operation error (replica do handleInsertError)
+       * @param {Error} error - Error object
+       */
+      handleAppendError(error) {
+        enableActionButtons();
+        console.error("❌ Falha na operação de append:", error);
+        alert("Ocorreu um erro ao processar a solicitação de append.");
+        hideLoadingSpinner();
+      }
+      
+      /**
+       * Gets concatenated text from list items for append (replica do getConcatenatedListItemsText)
+       * @returns {string} Concatenated text
+       */
+      getConcatenatedListItemsTextForAppend() {
+        const listItems = document.querySelectorAll('#listBotton li.list-group-item');
+        return Array.from(listItems)
+          .map(listItem => listItem.dataset.itemText || '')
+          .join('\n');
+      }
+
+      /**
+       * Inicia a verificação periódica do status do diálogo para append (replica do startDialogPolling)
+       */
+      startAppendDialogPolling() {
+        if (this.appendDialogPollInterval) {
+          clearInterval(this.appendDialogPollInterval);
+        }
+        this.appendDialogPollInterval = setInterval(() => {
+          google.script.run
+            .withSuccessHandler((status) => {
+              if (status.closed) {
+                clearInterval(this.appendDialogPollInterval);
+                if (status.inserted) {
+                  this.handleAppendSuccess(); // Limpa a lista se a inserção foi bem-sucedida
+                }
+              }
+            })
+            .withFailureHandler((err) => {
+              console.error("Error polling append dialog status:", err);
+              clearInterval(this.appendDialogPollInterval);
+            })
+            .getDialogStatus();
+        }, 2000); // Verifica a cada 2 segundos
+      }
+
+
+      
+      handleBtnCursorTextClick() {
+        
+        // Verifica se a lista está vazia - se estiver, não faz nada
+        const listItems = document.querySelectorAll('#listBotton li.list-group-item');
+        
+        if (listItems.length === 0) {
+          // Lista vazia - não faz nada
+          return;
+        }
+        
+        // Ativa o spinner apenas se há itens na lista
+        showLoadingSpinner();
+        
+        // Lista não está vazia - verifica seleção e insere texto em uma única operação
+        const concatenatedText = this.getConcatenatedListItemsText(); 
+        const obj = {
+          text: concatenatedText,
+          shouldFormat: false // Não formata para cursor-text
+        };
+        
+        google.script.run
+          .withSuccessHandler((result) => {
+            
+            if (result.success) {
+              // Operação bem-sucedida
+              this.handleCursorTextSuccess();
+            } else {
+              // Operação falhou
+              if (result.hasSelection) {
+                // Há texto selecionado - mostra alert específico
+                alert('❌ ' + result.message);
+              } else {
+                // Outro tipo de erro
+                alert('❌ ' + result.message);
+              }
+              hideLoadingSpinner();
+              enableActionButtons();
+            }
+          })
+          .withFailureHandler((error) => {
+            console.error('❌ Erro na operação:', error);
+            alert('Erro ao processar operação: ' + error.message);
+            hideLoadingSpinner();
+            enableActionButtons();
+          })
+          .checkSelectionAndInsertAtCursor(JSON.stringify(obj));
+      }
+      
+
+      
+      /**
+       * Handles successful cursor text insertion
+       */
+      handleCursorTextSuccess() {
+        clearListBotton();
+        enableActionButtons();
+        hideLoadingSpinner();
+      }
+      
+      /**
+       * Handles cursor text insertion error
+       * @param {Error} error - Error object
+       */
+      handleCursorTextError(error) {
+        enableActionButtons();
+        console.error("❌ Falha na inserção na posição do cursor:", error);
+        alert("Ocorreu um erro ao inserir texto na posição do cursor: " + error.message);
+        hideLoadingSpinner();
+      }
+      
+
+      handleBtnBrushClick() {
+        // Ativa o spinner imediatamente ao clicar
+        showLoadingSpinner();
+        
+        // Busca os pares fromHeadline2/toHeadline2 das script properties
+        // e verifica compatibilidade com o documento
+        google.script.run
+          .withSuccessHandler((result) => {
+            hideLoadingSpinner();
+            
+            if (result.success) {
+              // Processamento bem-sucedido - não mostra alert
+            } else {
+              // Falha no processamento - mostra mensagem específica
+              alert(`❌ ${result.message}`);
+            }
+          })
+          .withFailureHandler((error) => {
+            hideLoadingSpinner();
+            alert('❌ Erro no processamento brush: ' + error.message);
+          })
+          .executeCompleteBrushFlowWithPairs();
+      }
+      
+
+      
+
+      handleBtnMagicClick() {
+        
+        // Mostra o spinner
+        showLoadingSpinner();
+        
+        // Prepara os dados dos prompts e envia diretamente para o servidor
+        const promptsData = this.preparePromptsDataForServer();
+        
+        // Chama a função server-side para abrir o modal passando os dados dos prompts
+        google.script.run
+          .withSuccessHandler(() => {
+            hideLoadingSpinner();
+          })
+          .withFailureHandler((error) => {
+            console.error('❌ Erro ao abrir modal mágico:', error);
+            alert('Erro ao abrir modal mágico: ' + error.message);
+            hideLoadingSpinner();
+          })
+          .callMagicModal(promptsData);
+      }
+      
+             /**
+        * Prepara os dados dos prompts para enviar diretamente ao servidor
+        */
+       preparePromptsDataForServer() {
+         try {
+           // Obtém todos os prompts disponíveis do ApplicationState
+           const allPrompts = this.state.getAllPrompts();
+           
+           // Converte o objeto allPrompts em um array de objetos
+           const promptsArray = [];
+           
+           if (allPrompts) {
+             Object.keys(allPrompts).forEach(key => {
+               const prompt = allPrompts[key];
+               promptsArray.push({
+                 optionText: key,
+                 fromHeadline2: prompt.fromHeadline2,
+                 toHeadline2: prompt.toHeadline2,
+                 promptContent: prompt.content
+               });
+             });
+           }
+           
+           
+           return promptsArray;
+           
+         } catch (error) {
+           console.error('❌ Erro ao preparar prompts para servidor:', error);
+           // Retorna array vazio se houver erro
+           return [];
+         }
+       }
+    }
+
+    // Global instance
+    const actionHandler = new ActionHandler();
+
+    // Global functions for backward compatibility
+    function runInsert(shouldFormat) {
+      return actionHandler.runInsert(shouldFormat);
+    }
+
+    function runAppend(shouldFormat) {
+      return actionHandler.runAppend(shouldFormat);
+    }
+
+    function handleIaButtonClick() {
+      return actionHandler.handleIaButtonClick();
+    }
+</script>
+  
