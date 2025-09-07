@@ -296,6 +296,42 @@ class DocumentHeadlineManager {
       // ✅ Permite múltiplos H2s iguais para o mesmo H1 - sempre adiciona nova entrada
       this.bodyStructure.push({ headline1, headline2: newHeadline2, text: cleanedText });
     }
+
+    updateDocumentSection(headline1, newHeadline2, newText, action) {
+      // Remove o headline2 do início do texto, se presente
+      let cleanedText = newText;
+      if (cleanedText.trim().startsWith(newHeadline2)) {
+        cleanedText = cleanedText.substring(cleanedText.indexOf(newHeadline2) + newHeadline2.length).trim();
+      }
+
+      if (action === 'add') {
+        // Ação 'add': sempre adiciona uma nova estrutura
+        this.bodyStructure.push({
+          headline1: headline1,
+          headline2: newHeadline2,
+          text: cleanedText
+        });
+      } else if (action === 'correct_generate') {
+        // Ação 'correct_generate': verifica se já existe
+        const existingIndex = this.bodyStructure.findIndex(doc =>
+          doc.headline1 === headline1 && doc.headline2 === newHeadline2
+        );
+
+        if (existingIndex !== -1) {
+          // Se existe, remove todas as ocorrências
+          this.bodyStructure = this.bodyStructure.filter(doc =>
+            !(doc.headline1 === headline1 && doc.headline2 === newHeadline2)
+          );
+        }
+
+        // Adiciona a nova estrutura (seja para corrigir ou gerar)
+        this.bodyStructure.push({
+          headline1: headline1,
+          headline2: newHeadline2,
+          text: cleanedText
+        });
+      }
+    }
   
     /**
      * Obtém os pares de Headline1 e Headline2 do documento

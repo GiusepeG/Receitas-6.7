@@ -369,10 +369,9 @@ class GoogleDriveDataFetcher {
         
         // Extrair informações do nome do arquivo
         const parts = fileName.split(',');
-        if (parts.length >= 3) {
+        if (parts.length >= 2) {
           const tabName = parts[0].trim().replace(/\.txt$/i, '');
-          const fromHeadline2 = parts[1].trim().normalize('NFC');
-          const toHeadline2 = parts[2].trim().replace(/\.txt$/i, '').normalize('NFC');
+          const toHeadline2 = parts[1].trim().replace(/\.txt$/i, '').normalize('NFC');
           
           // Adicionar título à lista (sem duplicatas)
           const cleanTabName = tabName.normalize('NFC');
@@ -385,7 +384,6 @@ class GoogleDriveDataFetcher {
             const promptContent = file.getBlob().getDataAsString('UTF-8').trim();
             
             allPrompts[tabName] = {
-              fromHeadline2: fromHeadline2,
               toHeadline2: toHeadline2,
               content: promptContent,
             };

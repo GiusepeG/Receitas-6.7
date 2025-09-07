@@ -736,45 +736,34 @@ function callMagicModal(promptsData) {
     // Se os prompts não foram fornecidos, carrega do servidor
     const prompts = promptsData && promptsData.length > 0 ? promptsData : getAllPromptsForMagic();
     
-    // NOVA LÓGICA: Buscar H1s com H2s elegíveis baseados nos prompts
-    const uniqueHeadline1sWithEligibleH2s = getUniqueDocumentHeadline1sWithEligibleH2s(prompts);
+    // NOVA LÓGICA: Buscar todos os H1s únicos do documento
+    const uniqueHeadline1s = getAllUniqueDocumentHeadline1s();
     
-    showMagicModal(prompts, uniqueHeadline1sWithEligibleH2s);
+    showMagicModal(prompts, uniqueHeadline1s);
   } catch (error) {
     console.error('[SB_server_buttonMagic] Erro ao abrir modal mágico:', error);
     throw error;
   }
 }
 
+
 /**
- * Obtém apenas os H1 únicos do documento com seus H2s elegíveis
- * @param {Array} promptsArray - Array de prompts para extrair fromH2 elegíveis
- * @return {Array} Array de objetos com H1 únicos e seus H2s elegíveis
+ * Obtém todos os H1s únicos do documento
+ * @return {Array} Array de objetos no formato [{ headline1: "..." }]
  */
-function getUniqueDocumentHeadline1sWithEligibleH2s(promptsArray) {
+function getAllUniqueDocumentHeadline1s() {
   try {
     const documentManager = new DocumentHeadlineManager();
     const uniqueHeadline1s = documentManager.getUniqueHeadline1s();
     
-    // Extrair fromH2 únicos dos prompts
-    const fromH2Elegíveis = [...new Set(promptsArray.map(prompt => prompt.fromHeadline2))];
+    // Formatar para o formato esperado pelo cliente
+    const formattedHeadline1s = uniqueHeadline1s.map(h1 => ({ headline1: h1 }));
     
-    // Para cada H1, obter seus H2s e filtrar apenas os elegíveis
-    const uniqueHeadline1sWithEligibleH2s = uniqueHeadline1s.map(headline1 => {
-      const allH2sForThisH1 = documentManager.getHeadline2sForHeadline1(headline1);
-      const eligibleH2s = allH2sForThisH1.filter(h2 => fromH2Elegíveis.includes(h2));
-      
-      return {
-        headline1: headline1,
-        eligibleH2s: eligibleH2s
-      };
-    }).filter(item => item.eligibleH2s.length > 0); // Apenas H1s com H2s elegíveis
+    console.log('[SB_server_buttonMagic] Total de H1s únicos encontrados:', formattedHeadline1s.length);
     
-    console.log('[SB_server_buttonMagic] H1s com H2s elegíveis:', uniqueHeadline1sWithEligibleH2s.length);
-    
-    return uniqueHeadline1sWithEligibleH2s;
+    return formattedHeadline1s;
   } catch (error) {
-    console.error('[SB_server_buttonMagic] Erro ao obter H1s com H2s elegíveis:', error);
+    console.error('[SB_server_buttonMagic] Erro ao obter H1s únicos:', error);
     throw error;
   }
 }
