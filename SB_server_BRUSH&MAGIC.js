@@ -171,94 +171,104 @@ function openBrushMagicModal() {
 }
 
 /**
- * Executa o fluxo de melhoria (Brush) de forma automática e sem interface.
+ * Executa o fluxo de melhoria (Brush) com uma lógica de comparação de strings
+ * robusta para resolver problemas de codificação de caracteres (NFC/NFD).
  * @returns {Object} Objeto com o resultado da operação para o cliente.
  */
 function executeBrushFlow() {
+  console.log('--- INÍCIO DO FLUXO BRUSH (v. Solução Definitiva) ---');
   try {
-    // Step 1: Document Validation (Ensure a Single Patient)
     const docManager = new DocumentHeadlineManager();
     const uniqueHeadline1s = docManager.getUniqueHeadline1s();
-    const numberOfPatients = uniqueHeadline1s.length;
-
-    if (numberOfPatients !== 1) {
-      return {
-        success: false,
-        message: `The Brush mode only works with a single patient (Headline1) at a time. The current document contains ${numberOfPatients}.`
-      };
+    if (uniqueHeadline1s.length !== 1) {
+      return { success: false, message: `O modo Brush requer exatamente um paciente (Headline1). Encontrados: ${uniqueHeadline1s.length}.` };
     }
-    const patientHeadline1 = uniqueHeadline1s[0];
-
-    // Step 2: Load Configuration and Prompts
-    const properties = PropertiesService.getScriptProperties();
-    const brushPairsString = properties.getProperty('brushButtonPairs');
-    if (!brushPairsString) {
-      return { success: false, message: 'Script property "brushButtonPairs" not found.' };
-    }
-    const brushPairs = brushPairsString.split(';').map(pair => {
-      const [promptPrefix, sectionName] = pair.split(',').map(s => s.trim());
-      return { promptPrefix, fromH2: sectionName, toH2: sectionName };
-    });
+    const headline1 = uniqueHeadline1s[0];
+    console.log(`[Brush LOG] Paciente validado: "${headline1}"`);
 
     const promptsMap = _getPromptsMap();
-    if (promptsMap.size === 0) {
-      return { success: false, message: 'No prompt files found in the prompts folder.' };
-    }
+    if (promptsMap.size === 0) return { success: false, message: 'Nenhum arquivo de prompt (.txt) foi encontrado.' };
 
-    // Step 3: Assemble the Execution Plan
-    const patientSections = new Set(docManager.getHeadline2sForHeadline1(patientHeadline1));
+    const properties = PropertiesService.getScriptProperties();
+    const brushPairsString = properties.getProperty('brushButtonPairs');
+    if (!brushPairsString || brushPairsString.trim() === '') return { success: false, message: 'A propriedade "brushButtonPairs" não está configurada.' };
+    
+    const brushPairs = brushPairsString.split(';').map(p => {
+      const [prefix, h2] = p.split(',').map(s => s.trim());
+      return { promptPrefix: prefix, fromH2: h2 };
+    });
+
+    // Pega as seções do documento.
+    const docStructure = docManager.getDocumentHeadlinePairsAndContent();
+    const existingH2sForPatient = docStructure
+      .filter(item => item.headline1 === headline1)
+      .map(item => item.headline2);
+
     const promptsToExecute = [];
-
     for (const pair of brushPairs) {
-      if (patientSections.has(pair.fromH2)) {
-        const prompt = promptsMap.get(pair.promptPrefix);
-        if (prompt) {
+      const h2FromConfig = pair.fromH2;
+      
+      // >>>>> SOLUÇÃO APLICADA AQUI <<<<<
+      // Em vez de usar um Set.has(), que se mostrou não confiável,
+      // iteramos e comparamos as versões normalizadas de cada string explicitamente.
+      const normalizedConfigH2 = h2FromConfig.trim().normalize('NFC');
+      
+      const matchFound = existingH2sForPatient.some(docH2 => {
+        const normalizedDocH2 = docH2.trim().normalize('NFC');
+        // Log para ver a comparação exata que está sendo feita
+        console.log(`[Brush LOG] Comparando: "${normalizedDocH2}" === "${normalizedConfigH2}"`);
+        return normalizedDocH2 === normalizedConfigH2;
+      });
+
+      if (matchFound) {
+        if (promptsMap.has(pair.promptPrefix)) {
+          console.log(`[Brush LOG] SUCESSO: Correspondência encontrada para "${h2FromConfig}". Ação agendada.`);
+          const promptData = promptsMap.get(pair.promptPrefix);
           promptsToExecute.push({
-            fromHeadline2: pair.fromH2,
-            toHeadline2: prompt.toHeadline2,
-            promptContent: prompt.content,
-            optionText: `Brush: ${pair.fromH2}`
+            fromHeadline2: h2FromConfig,
+            toHeadline2: promptData.toHeadline2,
+            promptContent: promptData.content,
+            action: 'correct_generate'
           });
         }
       }
     }
 
-    // Step 4: Execute Batch Processing
     if (promptsToExecute.length === 0) {
-      return { success: true, message: 'No sections found that required processing.' };
+      const message = `Nenhuma das seções configuradas para o Brush foi encontrada para este paciente. Causa provável: diferença de caracteres invisíveis entre o Doc e a configuração.`;
+      console.warn(`[Brush Flow] Falha: ${message}`);
+      return { success: false, message: message };
     }
 
-    const processingData = {
-      headline1s: [{ headline1: patientHeadline1 }],
-      prompts: promptsToExecute,
-      requireAugmentedContext: true
-    };
-
+    const processingData = { headline1s: [{ headline1 }], prompts: promptsToExecute };
     const result = processSequentialPromptsForPairs(processingData);
 
-    // Step 5: Finalize and Report
     if (result.success) {
-      return { success: true, message: 'Brush flow completed successfully.' };
+      const successMessage = `Processamento Brush concluído! ${promptsToExecute.length} seção(ões) atualizada(s).`;
+      console.log(`[Brush LOG] ${successMessage}`);
+      console.log('--- FIM DO FLUXO BRUSH ---');
+      return { success: true, message: successMessage };
     } else {
-      return { success: false, message: `An error occurred during processing: ${result.message}` };
+      throw new Error(result.message || 'Erro durante o processamento da IA.');
     }
 
   } catch (error) {
-    return { success: false, message: `An unexpected error occurred in executeBrushFlow: ${error.message}` };
+    console.error('[Brush Flow] Erro fatal:', error);
+    return { success: false, message: error.message };
   }
 }
 
 /**
- * Helper para buscar todos os prompts e retorná-los como um Map por prefixo.
- * @returns {Map<string, Object>} Mapa onde a chave é o prefixo do prompt e o valor são os dados do prompt.
+ * Função auxiliar para buscar todos os prompts e retorná-los como um Map.
+ * Reutiliza a função já existente para carregar os prompts.
  * @private
+ * @returns {Map<string, Object>} Mapa onde a chave é o prefixo do prompt (ex: "01 Prontuário") e o valor são os dados do prompt.
  */
 function _getPromptsMap() {
-  const allPrompts = getAllPromptsForMagic(); // Reutiliza a função existente
+  const allPrompts = getAllPromptsForMagic();
   const promptsMap = new Map();
 
   for (const prompt of allPrompts) {
-    // CORREÇÃO: a chave do mapa é o optionText, que já é o prefixo do prompt.
     const prefix = prompt.optionText;
     promptsMap.set(prefix, {
       toHeadline2: prompt.toHeadline2,

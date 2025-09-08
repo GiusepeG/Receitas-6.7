@@ -78,7 +78,7 @@ function showModalDocumentStructure(prompts) {
           const finalPrompt = `${promptContent}\n\n${clinicalContentWithHeadline1}`;
           
           const newContent = callAIModel(finalPrompt);
-          console.log(`[Brush Flow] Resposta da IA: ${newContent}`);
+          console.log(`[AI LOG] Resposta da IA recebida para "${headline1}" / "${toHeadline2}": "${newContent.substring(0, 100)}..."`); // Log dos primeiros 100 caracteres da resposta.
 
           iterationCounter++;
           
