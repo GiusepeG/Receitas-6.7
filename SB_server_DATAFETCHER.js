@@ -383,7 +383,7 @@ class GoogleDriveDataFetcher {
             // Ler conteúdo do arquivo (uma única vez)
             const promptContent = file.getBlob().getDataAsString('UTF-8').trim();
             
-            allPrompts[tabName] = {
+            allPrompts[cleanTabName] = {
               toHeadline2: toHeadline2,
               content: promptContent,
             };

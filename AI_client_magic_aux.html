@@ -9,7 +9,7 @@
   
   document.addEventListener('DOMContentLoaded', function() {
     initializeModal();
-    document.getElementById('promptsContainer').addEventListener('change', handlePromptChange);
+    document.getElementById('promptsContainer').addEventListener('click', handlePromptClick);
     document.getElementById('pairsContainer').addEventListener('click', handlePatientClick);
   });
 
@@ -22,13 +22,19 @@
     if (promptsArray && promptsArray.length > 0) {
       renderPrompts();
     } else {
-      document.getElementById('promptsContainer').innerHTML = 
+      document.getElementById('promptsContainer').innerHTML =
         '<div class="text-center p-3"><p class="text-danger">Nenhum prompt disponível</p></div>';
     }
+
+    // Se houver apenas um paciente, pré-selecione-o
+    if (uniqueHeadline1s && uniqueHeadline1s.length === 1) {
+      selectedPatients = [0]; // Seleciona o primeiro (e único) paciente
+    }
+
     if (uniqueHeadline1s && uniqueHeadline1s.length > 0) {
       renderPatients();
     } else {
-      document.getElementById('pairsContainer').innerHTML = 
+      document.getElementById('pairsContainer').innerHTML =
         '<div class="text-center p-3"><p class="text-danger">Nenhum paciente disponível</p></div>';
     }
   }
@@ -39,27 +45,17 @@
       container.innerHTML = '<div class="text-center p-3"><p class="text-muted">Nenhum prompt disponível.</p></div>';
       return;
     }
-    const sortedPrompts = [...promptsArray].sort((a, b) => a.optionText.localeCompare(b.optionText, 'pt-BR'));
+    const sortedPrompts = [...promptsArray].sort((a, b) => a.optionText.localeCompare(b.optionText, 'pt-BR', { numeric: true }));
     container.innerHTML = sortedPrompts.map((prompt, index) => {
-      const promptId = `prompt_${index}`;
       return `
-      <div class="prompt-option p-2" data-prompt-title="${prompt.optionText}">
-        <div class="prompt-title">${prompt.optionText}</div>
+      <div class="prompt-option p-2" data-prompt-title="${prompt.optionText}" style="cursor: pointer;">
+        <div class="prompt-title">${prompt.displayText}</div>
         <div class="prompt-description">${prompt.toHeadline2}</div>
-        <div class="form-check form-check-inline">
-          <input class="form-check-input" type="radio" name="action_${promptId}" value="correct_generate" data-prompt-title="${prompt.optionText}" checked>
-          <label class="form-check-label">Corrigir/Gerar</label>
-        </div>
-        <div class="form-check form-check-inline">
-          <input class="form-check-input" type="radio" name="action_${promptId}" value="add" data-prompt-title="${prompt.optionText}">
-          <label class="form-check-label">Adicionar</label>
-        </div>
       </div>
     `}).join('');
-    // Initialize selectedPrompts with default action for all prompts
-    promptsArray.forEach(prompt => {
-        selectedPrompts[prompt.optionText] = 'correct_generate';
-    });
+    
+    // Clear initial prompts and update button state
+    selectedPrompts = {};
     updateConfirmButton();
   }
 
@@ -100,14 +96,23 @@
     updateConfirmButton();
   }
 
-  function handlePromptChange(event) {
-    const target = event.target;
-    if (target.type === 'radio' && target.checked) {
+  function handlePromptClick(event) {
+    const target = event.target.closest('.prompt-option');
+    if (target) {
         const promptTitle = target.dataset.promptTitle;
-        selectedPrompts[promptTitle] = target.value;
-        document.querySelectorAll(`div[data-prompt-title="${promptTitle}"]`).forEach(el => el.classList.add('selected'));
+        
+        // Toggle selection class
+        target.classList.toggle('selected');
+        
+        // Update state
+        if (target.classList.contains('selected')) {
+            selectedPrompts[promptTitle] = 'correct_generate';
+        } else {
+            delete selectedPrompts[promptTitle];
+        }
+        
+        updateConfirmButton();
     }
-    updateConfirmButton();
 }
 
   function selectAllPatients() {

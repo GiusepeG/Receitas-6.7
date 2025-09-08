@@ -78,6 +78,7 @@ function showModalDocumentStructure(prompts) {
           const finalPrompt = `${promptContent}\n\n${clinicalContentWithHeadline1}`;
           
           const newContent = callAIModel(finalPrompt);
+          console.log(`[Brush Flow] Resposta da IA: ${newContent}`);
 
           iterationCounter++;
           

@@ -157,538 +157,133 @@ function openAppendChoiceDialog(uniqueHeadline1s, textToAppend, shouldFormat) {
 
 
 /**
- * Executa todo o fluxo do botão brush em uma única operação
- * Combina: obtenção de toHeadline2s, validação de H1s e processamento com IA
- * @param {Object} brushData - Dados do brush incluindo prompts do cliente
- * @return {Object} Resultado da operação
- */
-function executeCompleteBrushFlow(brushData) {
-  const { fixedFromHeadline2 } = brushData;
-  
-  try {
-    // ETAPA 1: Obter toHeadline2s do PropertiesService
-    const properties = PropertiesService.getScriptProperties();
-    const toHeadline2sString = properties.getProperty('BRUSH_TO_HEADLINE2S');
-    
-    if (!toHeadline2sString) {
-      return {
-        success: false,
-        action: 'no_config',
-        message: 'Nenhum toHeadline2 configurado. Configure os toHeadline2s nas propriedades do script primeiro.'
-      };
-    }
-    
-    // Converte a string CSV em array
-    const toHeadline2sArray = toHeadline2sString
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => item.length > 0);
-    
-    if (toHeadline2sArray.length === 0) {
-      return {
-        success: false,
-        action: 'no_config',
-        message: 'Configuração de toHeadline2s está vazia.'
-      };
-    }
-    
-    // NOVO: Obter prompts diretamente do servidor
-    const documentId = properties.getProperty('docData');
-    const sheetId = properties.getProperty('sheetData');
-    
-    if (!documentId || !sheetId) {
-      return {
-        success: false,
-        action: 'no_config',
-        message: 'Configuração de documentId ou sheetId não encontrada.'
-      };
-    }
-    
-    const dataFetcher = new GoogleDriveDataFetcher(documentId, sheetId);
-    const data = dataFetcher.extractAllDataFromSources();
-    const allPrompts = data.allPrompts;
-    
-    if (!allPrompts || Object.keys(allPrompts).length === 0) {
-      return {
-        success: false,
-        action: 'no_prompts',
-        message: 'Nenhum prompt encontrado no sistema.'
-      };
-    }
-    
-    // ETAPA 2: Validar H1s do documento
-    const doc = DocumentApp.getActiveDocument();
-    const bodyText = doc.getBody().getText();
-    
-    // Usar TextManipulator para processar o texto
-    const formattingRules = getFormattingRules();
-    const placeholders = getRulesForPlaceholders();
-    const heading1Rules = formattingRules.filter(rule => rule.heading === DocumentApp.ParagraphHeading.HEADING1);
-    const heading2Rules = formattingRules.filter(rule => rule.heading === DocumentApp.ParagraphHeading.HEADING2);
-    
-    const textManipulator = new TextManipulator(bodyText, placeholders, heading1Rules, heading2Rules);
-    const processedText = textManipulator
-      .splitInLines()
-      .removeEmptyLines()
-      .trimLeadingSpaces()
-      .checkAndModifyFirstLine()
-      .processLines()
-      .structureH2Blocks()
-      .getResult();
-    
-    // Criar estrutura do documento
-    const headlineManager = new DocumentHeadlineManager();
-    headlineManager.bodyText = processedText;
-    headlineManager.bodyStructure = buildDocumentStructureWithH1Only(processedText, heading1Rules, heading2Rules);
-    
-    const uniqueHeadline1s = headlineManager.getUniqueHeadline1s();
-    
-    // Verificar cenários de H1s
-    if (uniqueHeadline1s.length === 0) {
-      return {
-        success: false,
-        action: 'no_h1',
-        message: 'Nenhum Headline1 encontrado no documento. É necessário ter pelo menos um paciente para usar esta função.'
-      };
-    }
-    
-    if (uniqueHeadline1s.length > 1) {
-      return {
-        success: false,
-        action: 'multiple_h1',
-        message: `Encontrados ${uniqueHeadline1s.length} Headline1s no documento. O processamento de múltiplos pacientes ainda não está implementado para o botão Brush.`
-      };
-    }
-    
-    // Verificar se existe "Prontuário Médico"
-    const headline1 = uniqueHeadline1s[0];
-    const hasProtuarioPair = headlineManager.bodyStructure.some(item => 
-      item.headline1 === headline1 && 
-      item.headline2 === "Prontuário Médico"
-    );
-    
-    if (!hasProtuarioPair) {
-      return {
-        success: false,
-        action: 'no_prontuario',
-        message: 'Não foi encontrado o Headline2 "Prontuário Médico" no documento. Esta função requer a seção "Prontuário Médico" para funcionar.'
-      };
-    }
-    
-    // ETAPA 3: Montar prompts válidos
-    const validPrompts = [];
-    const pairs = [];
-    
-    toHeadline2sArray.forEach(toHeadline2 => {
-      // Procura o prompt correspondente (com normalização Unicode)
-        const promptKey = Object.keys(allPrompts).find(key => {
-          const prompt = allPrompts[key];
-          
-          // Normalizar strings para resolver problemas de acentos (NFC vs NFD)
-          const normalizedFromPrompt = (prompt.fromHeadline2 || '').normalize('NFC');
-          const normalizedToPrompt = (prompt.toHeadline2 || '').normalize('NFC');
-          const normalizedFromFixed = fixedFromHeadline2.normalize('NFC');
-          const normalizedToSearch = toHeadline2.normalize('NFC');
-          
-                    const fromMatch = normalizedFromPrompt === normalizedFromFixed;
-          const toMatch = normalizedToPrompt === normalizedToSearch;
-          
-          return fromMatch && toMatch;
-      });
-      
-      if (promptKey) {
-        const promptContent = allPrompts[promptKey].content;
-        
-        validPrompts.push({
-          fromHeadline2: fixedFromHeadline2,
-          toHeadline2: toHeadline2,
-          promptContent: promptContent,
-          optionText: `Melhorar ${toHeadline2}`
-        });
-        
-        pairs.push({
-          headline1: headline1,
-          headline2: toHeadline2
-        });
-      }
-    });
-    
-    if (validPrompts.length === 0) {
-      return {
-        success: false,
-        action: 'no_prompts',
-        message: 'Nenhum prompt válido encontrado para os toHeadline2s configurados. Verifique a configuração dos prompts.'
-      };
-    }
-    
-    // ETAPA 4: Executar processamento com IA
-    const headline1s = [{ headline1: headline1 }];
-    
-    const processingData = {
-      headline1s: headline1s,
-      prompts: validPrompts,
-      requireAugmentedContext: true
-    };
-    
-    // Chamar a função de processamento que está em AI_server_main.js
-    let result;
-    try {
-      result = processSequentialPromptsForPairs(processingData);
-    } catch (error) {
-      return {
-        success: false,
-        action: 'processing_error',
-        message: 'Erro ao chamar função de processamento: ' + error.message
-      };
-    }
-    
-    if (result.success) {
-      return {
-        success: true,
-        action: 'processed',
-        processedCount: validPrompts.length,
-        message: `Processamento concluído com sucesso! ${validPrompts.length} seção(ões) melhorada(s).`
-      };
-    } else {
-      return {
-        success: false,
-        action: 'processing_error',
-        message: `Erro no processamento: ${result.message || 'Erro desconhecido'}`
-      };
-    }
-    
-  } catch (error) {
-    return {
-      success: false,
-      action: 'error',
-      message: 'Erro durante o processamento brush: ' + error.message
-    };
-  }
-}
-
-
-/**
- * Valida o número de Headline1s no documento para o botão brush
- * @return {Object} Objeto com count, uniqueHeadline1s, hasProntuario e message
- */
-function validateHeadline1sForBrush() {
-  try {
-    // Obter o documento e seu texto
-    const doc = DocumentApp.getActiveDocument();
-    const bodyText = doc.getBody().getText();
-    
-    // Usar TextManipulator para processar o texto primeiro
-    const formattingRules = getFormattingRules();
-    const placeholders = getRulesForPlaceholders();
-    const heading1Rules = formattingRules.filter(rule => rule.heading === DocumentApp.ParagraphHeading.HEADING1);
-    const heading2Rules = formattingRules.filter(rule => rule.heading === DocumentApp.ParagraphHeading.HEADING2);
-    
-    const textManipulator = new TextManipulator(bodyText, placeholders, heading1Rules, heading2Rules);
-    const processedText = textManipulator
-      .splitInLines()
-      .removeEmptyLines()
-      .trimLeadingSpaces()
-      .checkAndModifyFirstLine()
-      .processLines()
-      .structureH2Blocks()
-      .getResult();
-    
-    // Criar uma instância customizada do HeadlineManager
-    const headlineManager = new DocumentHeadlineManager();
-    
-    // Substituir o texto do corpo pela versão processada
-    headlineManager.bodyText = processedText;
-    
-    // Usar uma versão customizada do buildDocumentStructure que trata H1 sozinho
-    headlineManager.bodyStructure = buildDocumentStructureWithH1Only(processedText, heading1Rules, heading2Rules);
-    
-    const uniqueHeadline1s = headlineManager.getUniqueHeadline1s();
-    
-    // Verificar se existe "Prontuário Médico" quando há apenas um H1
-    let hasProntuario = false;
-    if (uniqueHeadline1s.length === 1) {
-      // Verificar se existe o par H1 + "Prontuário Médico"
-      const hasProtuarioPair = headlineManager.bodyStructure.some(item => 
-        item.headline1 === uniqueHeadline1s[0] && 
-        item.headline2 === "Prontuário Médico"
-      );
-      hasProntuario = hasProtuarioPair;
-    }
-    
-    return {
-      count: uniqueHeadline1s.length,
-      uniqueHeadline1s: uniqueHeadline1s,
-      hasProntuario: hasProntuario,
-      message: `${uniqueHeadline1s.length} Headline1(s) encontrado(s) no documento.`
-    };
-    
-  } catch (error) {
-    console.error('❌ Erro ao validar H1s para brush:', error);
-    throw new Error('Erro ao validar Headline1s do documento: ' + error.message);
-  }
-}
-
-/**
- * Obtém os toHeadline2s configurados no PropertiesService para o botão brush
- * @return {Array} Array de toHeadline2s
- */
-function getBrushToHeadline2s() {
-  try {
-    const properties = PropertiesService.getScriptProperties();
-    const toHeadline2sString = properties.getProperty('BRUSH_TO_HEADLINE2S');
-    
-    if (!toHeadline2sString) {
-      console.log('📝 Nenhum toHeadline2 configurado no PropertiesService');
-      return [];
-    }
-    
-    // Converte a string CSV em array e remove espaços em branco
-    const toHeadline2sArray = toHeadline2sString
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => item.length > 0);
-    
-    console.log('📝 toHeadline2s obtidos do PropertiesService:', toHeadline2sArray);
-    return toHeadline2sArray;
-    
-  } catch (error) {
-    console.error('❌ Erro ao obter toHeadline2s do PropertiesService:', error);
-    throw new Error('Erro ao obter configuração de toHeadline2s: ' + error.message);
-  }
-}
-
-/**
- * Salva os toHeadline2s no PropertiesService
- * @param {Array} toHeadline2sArray - Array de toHeadline2s
- */
-function saveBrushToHeadline2s(toHeadline2sArray) {
-  try {
-    const properties = PropertiesService.getScriptProperties();
-    const toHeadline2sString = toHeadline2sArray.join(', ');
-    
-    properties.setProperty('BRUSH_TO_HEADLINE2S', toHeadline2sString);
-    console.log('✅ toHeadline2s salvos no PropertiesService:', toHeadline2sString);
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Erro ao salvar toHeadline2s no PropertiesService:', error);
-    throw new Error('Erro ao salvar configuração de toHeadline2s: ' + error.message);
-  }
-}
-
-/**
- * Executa o fluxo completo do brush usando pares fromHeadline2,toHeadline2
- * das script properties brushButtonPairs
- * @return {Object} Resultado da operação
+ * @deprecated A lógica foi substituída por executeBrushFlow.
  */
 function executeCompleteBrushFlowWithPairs() {
+  throw new Error("Esta função está obsoleta e foi substituída por executeBrushFlow.");
+}
+
+/**
+ * @deprecated A lógica foi substituída por executeBrushFlow.
+ */
+function openBrushMagicModal() {
+  throw new Error("Esta função está obsoleta e foi substituída por executeBrushFlow.");
+}
+
+/**
+ * Executa o fluxo de melhoria (Brush) de forma automática e sem interface.
+ * @returns {Object} Objeto com o resultado da operação para o cliente.
+ */
+function executeBrushFlow() {
+  console.log('[Brush Flow] Iniciando execução do Brush.');
   try {
-    // ETAPA 1: Obter pares fromHeadline2,toHeadline2 do PropertiesService
-    const properties = PropertiesService.getScriptProperties();
-    let brushButtonPairsString = properties.getProperty('brushButtonPairs');
-    
-    if (!brushButtonPairsString) {
-      // Configurar pares padrão automaticamente
-      const setupResult = setupBrushButtonPairs();
-      if (setupResult.success) {
-        brushButtonPairsString = properties.getProperty('brushButtonPairs');
-      } else {
-        return {
-          success: false,
-          action: 'no_config',
-          message: 'Não foi possível configurar os pares automaticamente: ' + setupResult.message
-        };
-      }
+    // Etapa 1: Validar se há apenas um H1 no documento
+    const docManager = new DocumentHeadlineManager();
+    const uniqueHeadline1s = docManager.getUniqueHeadline1s();
+
+    if (uniqueHeadline1s.length !== 1) {
+      const message = uniqueHeadline1s.length === 0
+        ? 'Nenhum paciente (Headline1) encontrado no documento.'
+        : `O modo Brush funciona apenas com um paciente (Headline1) por vez. Encontrados: ${uniqueHeadline1s.length}`;
+      console.warn(`[Brush Flow] Validação de H1 falhou: ${message}`);
+      return { success: false, message: message };
     }
-    
-    // Converte a string em array de pares
-    // Formato: "Prontuário Médico, Prontuário Médico; Prontuário Médico, Prescrição de Óculos; Laudo de Mapeamento de Retina, Laudo de Mapeamento de Retina"
-    const pairsArray = brushButtonPairsString
-      .split(';')
-      .map(pair => pair.trim())
-      .filter(pair => pair.length > 0)
-      .map(pair => {
-        const [fromHeadline2, toHeadline2] = pair.split(',').map(item => item.trim());
-        return { fromHeadline2, toHeadline2 };
-      });
-    
-    if (pairsArray.length === 0) {
-      return {
-        success: false,
-        action: 'no_config',
-        message: 'Configuração de pares está vazia ou mal formatada.'
-      };
-    }
-    
-    // ETAPA 2: Obter prompts diretamente do servidor
-    const documentId = properties.getProperty('docData');
-    const sheetId = properties.getProperty('sheetData');
-    
-    if (!documentId || !sheetId) {
-      return {
-        success: false,
-        action: 'no_config',
-        message: 'Configuração de documentId ou sheetId não encontrada.'
-      };
-    }
-    
-    const dataFetcher = new GoogleDriveDataFetcher(documentId, sheetId);
-    const data = dataFetcher.extractAllDataFromSources();
-    const allPrompts = data.allPrompts;
-    
-    if (!allPrompts || Object.keys(allPrompts).length === 0) {
-      return {
-        success: false,
-        action: 'no_prompts',
-        message: 'Nenhum prompt encontrado no sistema.'
-      };
-    }
-    
-    // ETAPA 3: Validar estrutura do documento
-    const doc = DocumentApp.getActiveDocument();
-    const bodyText = doc.getBody().getText();
-    
-    // Usar TextManipulator para processar o texto
-    const formattingRules = getFormattingRules();
-    const placeholders = getRulesForPlaceholders();
-    const heading1Rules = formattingRules.filter(rule => rule.heading === DocumentApp.ParagraphHeading.HEADING1);
-    const heading2Rules = formattingRules.filter(rule => rule.heading === DocumentApp.ParagraphHeading.HEADING2);
-    
-    const textManipulator = new TextManipulator(bodyText, placeholders, heading1Rules, heading2Rules);
-    const processedText = textManipulator
-      .splitInLines()
-      .removeEmptyLines()
-      .trimLeadingSpaces()
-      .checkAndModifyFirstLine()
-      .processLines()
-      .structureH2Blocks()
-      .getResult();
-    
-    // Criar estrutura do documento
-    const headlineManager = new DocumentHeadlineManager();
-    headlineManager.bodyText = processedText;
-    headlineManager.bodyStructure = buildDocumentStructureWithH1Only(processedText, heading1Rules, heading2Rules);
-    
-    const uniqueHeadline1s = headlineManager.getUniqueHeadline1s();
-    
-    // Verificar cenários de H1s
-    if (uniqueHeadline1s.length === 0) {
-      return {
-        success: false,
-        action: 'no_h1',
-        message: 'Nenhum Headline1 encontrado no documento. É necessário ter pelo menos um paciente para usar esta função.'
-      };
-    }
-    
-    if (uniqueHeadline1s.length > 1) {
-      return {
-        success: false,
-        action: 'multiple_h1',
-        message: `Encontrados ${uniqueHeadline1s.length} Headline1s no documento. O processamento de múltiplos pacientes ainda não está implementado para o botão Brush.`
-      };
-    }
-    
-    // ETAPA 4: Verificar compatibilidade dos pares com o documento
     const headline1 = uniqueHeadline1s[0];
-    const validPrompts = [];
-    
-    pairsArray.forEach(pair => {
-      const { fromHeadline2, toHeadline2 } = pair;
-      
-      // Verificar se existe o fromHeadline2 no documento
-      const hasFromHeadline2 = headlineManager.bodyStructure.some(item => 
-        item.headline1 === headline1 && 
-        item.headline2 === fromHeadline2
-      );
-      
-      if (!hasFromHeadline2) {
-        console.log(`⚠️ Par ignorado: ${fromHeadline2} -> ${toHeadline2}. Não encontrado "${fromHeadline2}" no documento.`);
-        return; // Pula este par
-      }
-      
-      // Procurar o prompt correspondente
-      const promptKey = Object.keys(allPrompts).find(key => {
-        const prompt = allPrompts[key];
-        
-        // Normalizar strings para resolver problemas de acentos (NFC vs NFD)
-        const normalizedFromPrompt = (prompt.fromHeadline2 || '').normalize('NFC');
-        const normalizedToPrompt = (prompt.toHeadline2 || '').normalize('NFC');
-        const normalizedFromSearch = fromHeadline2.normalize('NFC');
-        const normalizedToSearch = toHeadline2.normalize('NFC');
-        
-        const fromMatch = normalizedFromPrompt === normalizedFromSearch;
-        const toMatch = normalizedToPrompt === normalizedToSearch;
-        
-        return fromMatch && toMatch;
-      });
-      
-      if (promptKey) {
-        const promptContent = allPrompts[promptKey].content;
-        
-        validPrompts.push({
-          fromHeadline2: fromHeadline2,
-          toHeadline2: toHeadline2,
-          promptContent: promptContent,
-          optionText: `Melhorar ${toHeadline2}`
-        });
-        
-        console.log(`✅ Par válido encontrado: ${fromHeadline2} -> ${toHeadline2}`);
-      } else {
-        console.log(`⚠️ Par ignorado: ${fromHeadline2} -> ${toHeadline2}. Prompt não encontrado.`);
-      }
+    console.log(`[Brush Flow] Paciente validado: ${headline1}`);
+
+    // Etapa 2: Carregar e mapear todos os prompts por prefixo
+    const promptsMap = _getPromptsMap();
+    if (promptsMap.size === 0) {
+      return { success: false, message: 'Nenhum arquivo de prompt encontrado ou configurado.' };
+    }
+    console.log(`[Brush Flow] ${promptsMap.size} prompts carregados e mapeados.`);
+
+    // Etapa 3: Ler e processar os pares da propriedade de script
+    const properties = PropertiesService.getScriptProperties();
+    const brushPairsString = properties.getProperty('brushButtonPairs');
+    if (!brushPairsString) {
+      return { success: false, message: 'A propriedade de script "brushButtonPairs" não está configurada.' };
+    }
+    // CORREÇÃO: Mudar a ordem de parsing para "prefixo, h2"
+    const brushPairs = brushPairsString.split(';').map(p => {
+      const [prefix, h2] = p.split(',').map(s => s.trim());
+      return { promptPrefix: prefix, fromH2: h2, toH2: h2 }; // fromH2 e toH2 são os mesmos
     });
-    
-    if (validPrompts.length === 0) {
-      return {
-        success: false,
-        action: 'no_valid_pairs',
-        message: 'Nenhum par válido encontrado. Verifique se existem H2s compatíveis no documento e se os prompts estão configurados corretamente.'
-      };
+    console.log(`[Brush Flow] ${brushPairs.length} pares de Brush configurados.`);
+
+    // Etapa 4: Verificar quais seções (H2) existem para o paciente
+    const docStructure = docManager.getDocumentHeadlinePairsAndContent();
+    const existingH2s = new Set(docStructure
+      .filter(item => item.headline1 === headline1)
+      .map(item => item.headline2.normalize('NFC')));
+    console.log(`[Brush Flow] Seções existentes para o paciente: ${[...existingH2s].join(', ')}`);
+
+    // Etapa 5: Montar a lista de prompts que serão executados
+    const promptsToExecute = [];
+    for (const pair of brushPairs) {
+      const normalizedFromH2 = pair.fromH2.normalize('NFC');
+      if (existingH2s.has(normalizedFromH2)) {
+        const normalizedPrefix = pair.promptPrefix.normalize('NFC');
+        if (promptsMap.has(normalizedPrefix)) {
+          const promptData = promptsMap.get(normalizedPrefix);
+          promptsToExecute.push({
+            fromHeadline2: pair.fromH2, // O H2 que deve existir
+            toHeadline2: promptData.toHeadline2, // O H2 que será criado/atualizado (do nome do arquivo)
+            promptContent: promptData.content,
+            optionText: `Brush: ${promptData.toHeadline2}` // Nome para referência interna
+          });
+          console.log(`[Brush Flow] Prompt agendado: ${normalizedPrefix} para a seção ${pair.fromH2}`);
+        } else {
+          console.warn(`[Brush Flow] Seção "${pair.fromH2}" encontrada, mas o prompt com prefixo "${pair.promptPrefix}" (normalizado: "${normalizedPrefix}") não foi localizado.`);
+        }
+      }
     }
-    
-    // ETAPA 5: Executar processamento com IA
-    const headline1s = [{ headline1: headline1 }];
-    
+
+    if (promptsToExecute.length === 0) {
+      return { success: false, message: 'Nenhuma seção elegível para melhoria foi encontrada no documento para este paciente.' };
+    }
+
+    // Etapa 6: Executar o processamento em lote
+    console.log(`[Brush Flow] Enviando ${promptsToExecute.length} prompts para processamento.`);
     const processingData = {
-      headline1s: headline1s,
-      prompts: validPrompts,
-      requireAugmentedContext: true
+      headline1s: [{ headline1: headline1 }],
+      prompts: promptsToExecute,
+      requireAugmentedContext: true // O Brush sempre usa o contexto completo do H1
     };
-    
-    // Chamar a função de processamento que está em AI_server_main.js
-    let result;
-    try {
-      result = processSequentialPromptsForPairs(processingData);
-    } catch (error) {
-      return {
-        success: false,
-        action: 'processing_error',
-        message: 'Erro ao chamar função de processamento: ' + error.message
-      };
-    }
-    
+
+    const result = processSequentialPromptsForPairs(processingData);
     if (result.success) {
-      return {
-        success: true,
-        action: 'processed',
-        processedCount: validPrompts.length,
-        message: `Processamento concluído com sucesso! ${validPrompts.length} seção(ões) melhorada(s).`
-      };
+      const successMessage = `Processamento Brush concluído com sucesso! ${promptsToExecute.length} seção(ões) atualizada(s).`;
+      console.log(`[Brush Flow] ${successMessage}`);
+      return { success: true, message: successMessage };
     } else {
-      return {
-        success: false,
-        action: 'processing_error',
-        message: `Erro no processamento: ${result.message || 'Erro desconhecido'}`
-      };
+      throw new Error(result.message || 'Erro desconhecido durante o processamento sequencial.');
     }
-    
+
   } catch (error) {
-    return {
-      success: false,
-      action: 'error',
-      message: 'Erro durante o processamento brush com pares: ' + error.message
-    };
+    console.error('[Brush Flow] Erro fatal durante a execução:', error);
+    return { success: false, message: error.message };
   }
+}
+
+/**
+ * Helper para buscar todos os prompts e retorná-los como um Map por prefixo.
+ * @returns {Map<string, Object>} Mapa onde a chave é o prefixo do prompt e o valor são os dados do prompt.
+ * @private
+ */
+function _getPromptsMap() {
+  const allPrompts = getAllPromptsForMagic(); // Reutiliza a função existente
+  const promptsMap = new Map();
+
+  for (const prompt of allPrompts) {
+    // CORREÇÃO: a chave do mapa é o optionText, que já é o prefixo do prompt.
+    const prefix = prompt.optionText;
+    promptsMap.set(prefix, {
+      toHeadline2: prompt.toHeadline2,
+      content: prompt.promptContent
+    });
+  }
+  return promptsMap;
 }
 
 /**
