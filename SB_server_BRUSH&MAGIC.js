@@ -175,94 +175,76 @@ function openBrushMagicModal() {
  * @returns {Object} Objeto com o resultado da operação para o cliente.
  */
 function executeBrushFlow() {
-  console.log('[Brush Flow] Iniciando execução do Brush.');
   try {
-    // Etapa 1: Validar se há apenas um H1 no documento
+    // Step 1: Document Validation (Ensure a Single Patient)
     const docManager = new DocumentHeadlineManager();
     const uniqueHeadline1s = docManager.getUniqueHeadline1s();
+    const numberOfPatients = uniqueHeadline1s.length;
 
-    if (uniqueHeadline1s.length !== 1) {
-      const message = uniqueHeadline1s.length === 0
-        ? 'Nenhum paciente (Headline1) encontrado no documento.'
-        : `O modo Brush funciona apenas com um paciente (Headline1) por vez. Encontrados: ${uniqueHeadline1s.length}`;
-      console.warn(`[Brush Flow] Validação de H1 falhou: ${message}`);
-      return { success: false, message: message };
+    if (numberOfPatients !== 1) {
+      return {
+        success: false,
+        message: `The Brush mode only works with a single patient (Headline1) at a time. The current document contains ${numberOfPatients}.`
+      };
     }
-    const headline1 = uniqueHeadline1s[0];
-    console.log(`[Brush Flow] Paciente validado: ${headline1}`);
+    const patientHeadline1 = uniqueHeadline1s[0];
 
-    // Etapa 2: Carregar e mapear todos os prompts por prefixo
-    const promptsMap = _getPromptsMap();
-    if (promptsMap.size === 0) {
-      return { success: false, message: 'Nenhum arquivo de prompt encontrado ou configurado.' };
-    }
-    console.log(`[Brush Flow] ${promptsMap.size} prompts carregados e mapeados.`);
-
-    // Etapa 3: Ler e processar os pares da propriedade de script
+    // Step 2: Load Configuration and Prompts
     const properties = PropertiesService.getScriptProperties();
     const brushPairsString = properties.getProperty('brushButtonPairs');
     if (!brushPairsString) {
-      return { success: false, message: 'A propriedade de script "brushButtonPairs" não está configurada.' };
+      return { success: false, message: 'Script property "brushButtonPairs" not found.' };
     }
-    // CORREÇÃO: Mudar a ordem de parsing para "prefixo, h2"
-    const brushPairs = brushPairsString.split(';').map(p => {
-      const [prefix, h2] = p.split(',').map(s => s.trim());
-      return { promptPrefix: prefix, fromH2: h2, toH2: h2 }; // fromH2 e toH2 são os mesmos
+    const brushPairs = brushPairsString.split(';').map(pair => {
+      const [promptPrefix, sectionName] = pair.split(',').map(s => s.trim());
+      return { promptPrefix, fromH2: sectionName, toH2: sectionName };
     });
-    console.log(`[Brush Flow] ${brushPairs.length} pares de Brush configurados.`);
 
-    // Etapa 4: Verificar quais seções (H2) existem para o paciente
-    const docStructure = docManager.getDocumentHeadlinePairsAndContent();
-    const existingH2s = new Set(docStructure
-      .filter(item => item.headline1 === headline1)
-      .map(item => item.headline2.normalize('NFC')));
-    console.log(`[Brush Flow] Seções existentes para o paciente: ${[...existingH2s].join(', ')}`);
+    const promptsMap = _getPromptsMap();
+    if (promptsMap.size === 0) {
+      return { success: false, message: 'No prompt files found in the prompts folder.' };
+    }
 
-    // Etapa 5: Montar a lista de prompts que serão executados
+    // Step 3: Assemble the Execution Plan
+    const patientSections = new Set(docManager.getHeadline2sForHeadline1(patientHeadline1));
     const promptsToExecute = [];
+
     for (const pair of brushPairs) {
-      const normalizedFromH2 = pair.fromH2.normalize('NFC');
-      if (existingH2s.has(normalizedFromH2)) {
-        const normalizedPrefix = pair.promptPrefix.normalize('NFC');
-        if (promptsMap.has(normalizedPrefix)) {
-          const promptData = promptsMap.get(normalizedPrefix);
+      if (patientSections.has(pair.fromH2)) {
+        const prompt = promptsMap.get(pair.promptPrefix);
+        if (prompt) {
           promptsToExecute.push({
-            fromHeadline2: pair.fromH2, // O H2 que deve existir
-            toHeadline2: promptData.toHeadline2, // O H2 que será criado/atualizado (do nome do arquivo)
-            promptContent: promptData.content,
-            optionText: `Brush: ${promptData.toHeadline2}` // Nome para referência interna
+            fromHeadline2: pair.fromH2,
+            toHeadline2: prompt.toHeadline2,
+            promptContent: prompt.content,
+            optionText: `Brush: ${pair.fromH2}`
           });
-          console.log(`[Brush Flow] Prompt agendado: ${normalizedPrefix} para a seção ${pair.fromH2}`);
-        } else {
-          console.warn(`[Brush Flow] Seção "${pair.fromH2}" encontrada, mas o prompt com prefixo "${pair.promptPrefix}" (normalizado: "${normalizedPrefix}") não foi localizado.`);
         }
       }
     }
 
+    // Step 4: Execute Batch Processing
     if (promptsToExecute.length === 0) {
-      return { success: false, message: 'Nenhuma seção elegível para melhoria foi encontrada no documento para este paciente.' };
+      return { success: true, message: 'No sections found that required processing.' };
     }
 
-    // Etapa 6: Executar o processamento em lote
-    console.log(`[Brush Flow] Enviando ${promptsToExecute.length} prompts para processamento.`);
     const processingData = {
-      headline1s: [{ headline1: headline1 }],
+      headline1s: [{ headline1: patientHeadline1 }],
       prompts: promptsToExecute,
-      requireAugmentedContext: true // O Brush sempre usa o contexto completo do H1
+      requireAugmentedContext: true
     };
 
     const result = processSequentialPromptsForPairs(processingData);
+
+    // Step 5: Finalize and Report
     if (result.success) {
-      const successMessage = `Processamento Brush concluído com sucesso! ${promptsToExecute.length} seção(ões) atualizada(s).`;
-      console.log(`[Brush Flow] ${successMessage}`);
-      return { success: true, message: successMessage };
+      return { success: true, message: 'Brush flow completed successfully.' };
     } else {
-      throw new Error(result.message || 'Erro desconhecido durante o processamento sequencial.');
+      return { success: false, message: `An error occurred during processing: ${result.message}` };
     }
 
   } catch (error) {
-    console.error('[Brush Flow] Erro fatal durante a execução:', error);
-    return { success: false, message: error.message };
+    return { success: false, message: `An unexpected error occurred in executeBrushFlow: ${error.message}` };
   }
 }
 
