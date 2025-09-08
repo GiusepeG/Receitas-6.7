@@ -326,24 +326,23 @@
         // Ativa o spinner imediatamente ao clicar
         showLoadingSpinner();
         
-        // Busca os pares fromHeadline2/toHeadline2 das script properties
-        // e verifica compatibilidade com o documento
+        // Chama a nova função de servidor que executa todo o fluxo do brush
         google.script.run
           .withSuccessHandler((result) => {
             hideLoadingSpinner();
-            
             if (result.success) {
-              // Processamento bem-sucedido - não mostra alert
+              // Apenas loga o sucesso, sem alert para não ser intrusivo
+              console.log('✅ Brush success:', result.message);
             } else {
-              // Falha no processamento - mostra mensagem específica
+              // Mostra o erro para o usuário em caso de falha
               alert(`❌ ${result.message}`);
             }
           })
           .withFailureHandler((error) => {
             hideLoadingSpinner();
-            alert('❌ Erro no processamento brush: ' + error.message);
+            alert('❌ Erro ao executar a função Brush: ' + error.message);
           })
-          .executeCompleteBrushFlowWithPairs();
+          .executeBrushFlow();
       }
       
 
@@ -385,7 +384,8 @@
              Object.keys(allPrompts).forEach(key => {
                const prompt = allPrompts[key];
                promptsArray.push({
-                 optionText: key,
+                 optionText: key, // e.g., "01 Prontuário Médico"
+                 displayText: key.replace(/^\d+\s*/, ''), // e.g., "Prontuário Médico"
                  fromHeadline2: prompt.fromHeadline2,
                  toHeadline2: prompt.toHeadline2,
                  promptContent: prompt.content

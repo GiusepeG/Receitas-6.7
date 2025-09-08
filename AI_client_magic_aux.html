@@ -1,88 +1,65 @@
 <script>
   // Variáveis globais
-  let selectedPrompts = [];
-  let selectedH1sWithEligibleH2s = [];
+  let selectedPrompts = {}; // Objeto para armazenar a ação de cada prompt
+  let selectedPatients = [];
   let processingQueue = [];
   let progressInterval;
   let currentProgress = 0;
   let totalPairs = 0;
   
   document.addEventListener('DOMContentLoaded', function() {
-    // Carrega os dados que já estão disponíveis via scriplet
     initializeModal();
-    
-    // Event listeners para os containers
     document.getElementById('promptsContainer').addEventListener('click', handlePromptClick);
-    document.getElementById('pairsContainer').addEventListener('click', handlePairClick);
+    document.getElementById('pairsContainer').addEventListener('click', handlePatientClick);
   });
 
   window.addEventListener('beforeunload', function() {
     stopProgressSimulation();
   });
 
-  /**
-   * Inicializa o modal com os dados já carregados
-   */
   function initializeModal() {
     console.log('🚀 Inicializando modal com dados pré-carregados');
-    
-    // Os dados já estão disponíveis nas variáveis globais via scriplet
     if (promptsArray && promptsArray.length > 0) {
-      console.log('✅ Prompts disponíveis:', promptsArray.length);
       renderPrompts();
     } else {
-      console.error('❌ Nenhum prompt disponível');
-      document.getElementById('promptsContainer').innerHTML = 
+      document.getElementById('promptsContainer').innerHTML =
         '<div class="text-center p-3"><p class="text-danger">Nenhum prompt disponível</p></div>';
     }
-    
+
+    // Se houver apenas um paciente, pré-selecione-o
+    if (uniqueHeadline1s && uniqueHeadline1s.length === 1) {
+      selectedPatients = [0]; // Seleciona o primeiro (e único) paciente
+    }
+
     if (uniqueHeadline1s && uniqueHeadline1s.length > 0) {
-      console.log('✅ H1s com H2s elegíveis disponíveis:', uniqueHeadline1s.length);
-      renderH1sWithEligibleH2s();
+      renderPatients();
     } else {
-      console.error('❌ Nenhum H1 com H2s elegíveis disponível');
-      document.getElementById('pairsContainer').innerHTML = 
-        '<div class="text-center p-3"><p class="text-danger">Nenhum paciente com H2s elegíveis disponível</p></div>';
+      document.getElementById('pairsContainer').innerHTML =
+        '<div class="text-center p-3"><p class="text-danger">Nenhum paciente disponível</p></div>';
     }
   }
 
   function renderPrompts() {
     const container = document.getElementById('promptsContainer');
-    
     if (!promptsArray || promptsArray.length === 0) {
       container.innerHTML = '<div class="text-center p-3"><p class="text-muted">Nenhum prompt disponível.</p></div>';
       return;
     }
-
-    // Criar array com índices e prompts para manter referência aos índices originais
-    const promptsWithIndex = promptsArray.map((prompt, index) => ({
-      ...prompt,
-      originalIndex: index
-    }));
-
-    // Ordenar alfabeticamente pelo optionText (prompt-title)
-    const sortedPrompts = promptsWithIndex.sort((a, b) => 
-      a.optionText.localeCompare(b.optionText, 'pt-BR', { sensitivity: 'base' })
-    );
-
-    container.innerHTML = sortedPrompts.map((prompt, displayIndex) => `
-      <div class="prompt-option p-2 ${selectedPrompts.includes(prompt.originalIndex) ? 'selected' : ''}" data-index="${prompt.originalIndex}">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" 
-                 id="prompt${prompt.originalIndex}" value="${prompt.originalIndex}"
-                 ${selectedPrompts.includes(prompt.originalIndex) ? 'checked' : ''}>
-          <label class="form-check-label" for="prompt${prompt.originalIndex}">
-            <div class="prompt-title">${prompt.optionText}</div>
-            <div class="prompt-description">${prompt.fromHeadline2} → ${prompt.toHeadline2}</div>
-          </label>
-        </div>
+    const sortedPrompts = [...promptsArray].sort((a, b) => a.optionText.localeCompare(b.optionText, 'pt-BR', { numeric: true }));
+    container.innerHTML = sortedPrompts.map((prompt, index) => {
+      return `
+      <div class="prompt-option p-2" data-prompt-title="${prompt.optionText}" style="cursor: pointer;">
+        <div class="prompt-title">${prompt.displayText}</div>
+        <div class="prompt-description">${prompt.toHeadline2}</div>
       </div>
-    `).join('');
+    `}).join('');
     
+    // Clear initial prompts and update button state
+    selectedPrompts = {};
     updateConfirmButton();
   }
 
-  function renderH1sWithEligibleH2s() {
+  function renderPatients() {
     const container = document.getElementById('pairsContainer');
     const noPairsDiv = document.getElementById('noPairsMessage');
     const selectAllBtn = document.getElementById('selectAllPatientsBtn');
@@ -91,102 +68,61 @@
       container.style.display = 'none';
       noPairsDiv.style.display = 'block';
       selectAllBtn.style.display = 'none';
-      noPairsDiv.innerHTML = `
-        <h6>Nenhum paciente com H2s elegíveis encontrado</h6>
-        <p class="small">Nenhum paciente possui H2s compatíveis com os prompts disponíveis.</p>
-      `;
+      noPairsDiv.innerHTML = `<h6>Nenhum paciente encontrado</h6><p class="small">O documento não possui pacientes (H1).</p>`;
       return;
     }
 
     container.style.display = 'block';
     noPairsDiv.style.display = 'none';
     
-    // Lógica de pré-seleção: se tiver apenas 1 item, já vem pré-selecionado
-    if (uniqueHeadline1s.length === 1 && selectedH1sWithEligibleH2s.length === 0) {
-      selectedH1sWithEligibleH2s = [0];
-      selectAllBtn.style.display = 'none';
-    } else if (uniqueHeadline1s.length > 1) {
+    if (uniqueHeadline1s.length > 1) {
       selectAllBtn.style.display = 'block';
     } else {
       selectAllBtn.style.display = 'none';
     }
     
-    container.innerHTML = uniqueHeadline1s.map((h1Item, index) => `
-      <div class="pair-option p-2 ${selectedH1sWithEligibleH2s.includes(index) ? 'selected' : ''}" data-index="${index}">
+    container.innerHTML = uniqueHeadline1s.map((patient, index) => `
+      <div class="pair-option p-2 ${selectedPatients.includes(index) ? 'selected' : ''}" data-index="${index}">
         <div class="form-check">
-          <input class="form-check-input" type="checkbox" 
-                 id="headline1_${index}" value="${index}"
-                 ${selectedH1sWithEligibleH2s.includes(index) ? 'checked' : ''}>
-          <label class="form-check-label" for="headline1_${index}">
-            <div class="headline1">${h1Item.headline1}</div>
-            <div class="content-preview small text-muted mt-1">
-              H2s elegíveis: ${h1Item.eligibleH2s.join(', ')}
-            </div>
+          <input class="form-check-input" type="checkbox" id="patient_${index}" value="${index}" ${selectedPatients.includes(index) ? 'checked' : ''}>
+          <label class="form-check-label" for="patient_${index}">
+            <div class="headline1">${patient.headline1}</div>
           </label>
         </div>
       </div>
     `).join('');
     
-    // Atualizar o estado do botão "Selecionar todos"
     updateSelectAllButton();
-    
     updateConfirmButton();
   }
 
-  function selectAllPatients() {
-    if (!uniqueHeadline1s || uniqueHeadline1s.length === 0) {
-      return;
+  function handlePromptClick(event) {
+    const target = event.target.closest('.prompt-option');
+    if (target) {
+        const promptTitle = target.dataset.promptTitle;
+        
+        // Toggle selection class
+        target.classList.toggle('selected');
+        
+        // Update state
+        if (target.classList.contains('selected')) {
+            selectedPrompts[promptTitle] = 'correct_generate';
+        } else {
+            delete selectedPrompts[promptTitle];
+        }
+        
+        updateConfirmButton();
     }
-    
-    // Selecionar todos os pacientes
-    selectedH1sWithEligibleH2s = uniqueHeadline1s.map((_, index) => index);
-    
-    // Atualizar visualmente todos os checkboxes
-    const container = document.getElementById('pairsContainer');
-    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-    const pairOptions = container.querySelectorAll('.pair-option');
-    
-    checkboxes.forEach(checkbox => {
-      checkbox.checked = true;
-    });
-    
-    pairOptions.forEach(option => {
-      option.classList.add('selected');
-    });
-    
-    // Atualizar o botão de confirmação
-    updateConfirmButton();
-    
-    // Trocar o texto do botão para "Desmarcar todos"
-    const selectAllBtn = document.getElementById('selectAllPatientsBtn');
-    selectAllBtn.textContent = 'Desmarcar todos';
-    selectAllBtn.onclick = () => deselectAllPatients();
+}
+
+  function selectAllPatients() {
+    selectedPatients = uniqueHeadline1s.map((_, index) => index);
+    renderPatients();
   }
 
   function deselectAllPatients() {
-    // Desmarcar todos os pacientes
-    selectedH1sWithEligibleH2s = [];
-    
-    // Atualizar visualmente todos os checkboxes
-    const container = document.getElementById('pairsContainer');
-    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-    const pairOptions = container.querySelectorAll('.pair-option');
-    
-    checkboxes.forEach(checkbox => {
-      checkbox.checked = false;
-    });
-    
-    pairOptions.forEach(option => {
-      option.classList.remove('selected');
-    });
-    
-    // Atualizar o botão de confirmação
-    updateConfirmButton();
-    
-    // Trocar o texto do botão para "Selecionar todos"
-    const selectAllBtn = document.getElementById('selectAllPatientsBtn');
-    selectAllBtn.textContent = 'Selecionar todos';
-    selectAllBtn.onclick = () => selectAllPatients();
+    selectedPatients = [];
+    renderPatients();
   }
 
   function updateSelectAllButton() {
@@ -195,166 +131,111 @@
       selectAllBtn.style.display = 'none';
       return;
     }
-    
     selectAllBtn.style.display = 'block';
-    
-    // Se todos estão selecionados, mostrar "Desmarcar todos"
-    if (selectedH1sWithEligibleH2s.length === uniqueHeadline1s.length) {
+    if (selectedPatients.length === uniqueHeadline1s.length) {
       selectAllBtn.textContent = 'Desmarcar todos';
-      selectAllBtn.onclick = () => deselectAllPatients();
+      selectAllBtn.onclick = deselectAllPatients;
     } else {
       selectAllBtn.textContent = 'Selecionar todos';
-      selectAllBtn.onclick = () => selectAllPatients();
+      selectAllBtn.onclick = selectAllPatients;
     }
   }
   
-  function handlePromptClick(event) {
-    const promptOption = event.target.closest('.prompt-option');
-    if (!promptOption) return;
+  function handlePatientClick(event) {
+    const patientOption = event.target.closest('.pair-option');
+    if (!patientOption) return;
 
     setTimeout(() => {
-      const checkbox = promptOption.querySelector('input[type="checkbox"]');
+      const checkbox = patientOption.querySelector('input[type="checkbox"]');
       if (!checkbox) return;
       
-      const index = parseInt(promptOption.dataset.index, 10);
+      const index = parseInt(patientOption.dataset.index, 10);
       const isChecked = checkbox.checked;
 
       if (isChecked) {
-        if (!selectedPrompts.includes(index)) {
-          selectedPrompts.push(index);
+        if (!selectedPatients.includes(index)) {
+          selectedPatients.push(index);
         }
-        promptOption.classList.add('selected');
+        patientOption.classList.add('selected');
       } else {
-        selectedPrompts = selectedPrompts.filter(i => i !== index);
-        promptOption.classList.remove('selected');
+        selectedPatients = selectedPatients.filter(i => i !== index);
+        patientOption.classList.remove('selected');
       }
       
-      updateConfirmButton();
-    }, 0);
-  }
-
-  function handlePairClick(event) {
-    const pairOption = event.target.closest('.pair-option');
-    if (!pairOption) return;
-
-    setTimeout(() => {
-      const checkbox = pairOption.querySelector('input[type="checkbox"]');
-      if (!checkbox) return;
-      
-      const index = parseInt(pairOption.dataset.index, 10);
-      const isChecked = checkbox.checked;
-
-      if (isChecked) {
-        if (!selectedH1sWithEligibleH2s.includes(index)) {
-          selectedH1sWithEligibleH2s.push(index);
-        }
-        pairOption.classList.add('selected');
-      } else {
-        selectedH1sWithEligibleH2s = selectedH1sWithEligibleH2s.filter(i => i !== index);
-        pairOption.classList.remove('selected');
-      }
-      
-      // Atualizar o estado do botão "Selecionar todos"
       updateSelectAllButton();
-      
       updateConfirmButton();
     }, 0);
   }
 
   function updateConfirmButton() {
     const confirmBtn = document.getElementById('confirmBtn');
-    const hasPrompts = selectedPrompts.length > 0;
-    const hasH1s = selectedH1sWithEligibleH2s.length > 0;
+    const hasPrompts = Object.keys(selectedPrompts).length > 0;
+    const hasPatients = selectedPatients.length > 0;
     
-    confirmBtn.disabled = !hasPrompts || !hasH1s;
+    confirmBtn.disabled = !hasPrompts || !hasPatients;
     
-    if (hasPrompts && hasH1s) {
-      confirmBtn.textContent = `Processar (${selectedPrompts.length} prompts, ${selectedH1sWithEligibleH2s.length} pacientes)`;
-    } else if (!hasPrompts && !hasH1s) {
-      confirmBtn.textContent = 'Processar';
-    } else if (!hasPrompts) {
-      confirmBtn.textContent = 'Processar (selecione prompts)';
+    if (hasPrompts && hasPatients) {
+      confirmBtn.textContent = `Processar (${Object.keys(selectedPrompts).length} prompts, ${selectedPatients.length} pacientes)`;
     } else {
-      confirmBtn.textContent = 'Processar (selecione pacientes)';
+      confirmBtn.textContent = 'Processar';
     }
   }
 
   function confirmSelection() {
-    if (selectedPrompts.length === 0) {
+    if (Object.keys(selectedPrompts).length === 0) {
       alert('❌ Por favor, selecione pelo menos um prompt.');
       return;
     }
-
-    if (selectedH1sWithEligibleH2s.length === 0) {
+    if (selectedPatients.length === 0) {
       alert('❌ Por favor, selecione pelo menos um paciente.');
       return;
     }
-
-    // Construir pilha de processamento
     processingQueue = buildProcessingQueue();
-    
     if (processingQueue.length === 0) {
-      alert('❌ Nenhum processamento válido encontrado. Verifique se os prompts selecionados são compatíveis com os H2s elegíveis dos pacientes.');
+      alert('❌ Nenhum processamento válido encontrado.');
       return;
     }
-
-    // Executar processamento imediatamente
     executeProcessingQueue(processingQueue);
   }
 
   function buildProcessingQueue() {
     const queue = [];
-    
-    selectedH1sWithEligibleH2s.forEach(h1Index => {
-      const h1Item = uniqueHeadline1s[h1Index];
-      
-      selectedPrompts.forEach(promptIndex => {
-        const prompt = promptsArray[promptIndex];
-        
-        // Verificar se este H1 tem o fromH2 que o prompt precisa
-        if (h1Item.eligibleH2s.includes(prompt.fromHeadline2)) {
-          queue.push({
-            headline1: h1Item.headline1,
-            prompt: prompt,
-            fromH2: prompt.fromHeadline2,
-            toH2: prompt.toHeadline2
-          });
-        }
+    selectedPatients.forEach(patientIndex => {
+      const patient = uniqueHeadline1s[patientIndex];
+      promptsArray.forEach(prompt => {
+          const action = selectedPrompts[prompt.optionText];
+          if(action){
+            queue.push({
+                headline1: patient.headline1,
+                prompt: prompt,
+                action: action
+            });
+          }
       });
     });
-    
     return queue;
   }
 
-
-
   function executeProcessingQueue(queue) {
-    // Preparar dados para o servidor no formato esperado
-    const uniqueH1s = [...new Set(queue.map(item => item.headline1))];
-    const uniquePrompts = [];
-    const promptsSet = new Set();
+    const promptsForServer = [];
+    const promptActions = {};
     
     queue.forEach(item => {
-      const promptKey = `${item.prompt.fromHeadline2}|${item.prompt.toHeadline2}`;
-      if (!promptsSet.has(promptKey)) {
-        promptsSet.add(promptKey);
-        uniquePrompts.push(item.prompt);
-      }
+        if (!promptActions[item.prompt.optionText]) {
+            promptsForServer.push(item.prompt);
+            promptActions[item.prompt.optionText] = item.action;
+        }
     });
-    
+
     const processingData = {
-      headline1s: uniqueH1s.map(h1 => ({ headline1: h1 })),
-      prompts: uniquePrompts,
-      requireAugmentedContext: document.getElementById('augmentedContextCheck').checked
+      headline1s: selectedPatients.map(i => uniqueHeadline1s[i]),
+      prompts: promptsForServer.map(p => ({...p, action: promptActions[p.optionText]}))
     };
 
     console.log('Executando pilha de processamento:', processingData);
-
-    totalPairs = queue.length; // Adicione esta linha
-
+    totalPairs = queue.length;
     showProgress();
     startProgressSimulation();
-
     google.script.run
       .withSuccessHandler(onSelectionConfirmed)
       .withFailureHandler(onSelectionError)

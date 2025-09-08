@@ -49,7 +49,7 @@ function showModalDocumentStructure(prompts) {
    * Processa múltiplos pacientes selecionados com o prompt
    */
   function processSequentialPromptsForPairs(processingData) {
-    const { headline1s, prompts, requireAugmentedContext } = processingData;
+    const { headline1s, prompts } = processingData;
 
     if (!headline1s || headline1s.length === 0 || !prompts || prompts.length === 0) {
       console.error("Dados de processamento inválidos. Headline1s ou prompts ausentes.");
@@ -57,61 +57,37 @@ function showModalDocumentStructure(prompts) {
     }
 
     const doc = DocumentApp.getActiveDocument();
-    Logger.log(`bodyText with empty one space lines like " ": ${doc.getBody().getText()}`);
-    const documentManager = new DocumentHeadlineManager(); // Inicia com o conteúdo atual
-    const oldBodyText = documentManager.getGroupedText();
-    Logger.log(`bodyText without empty one space lines like " ": ${oldBodyText}`);
-    let iterationCounter = 0; // Contador para o log
+    const documentManager = new DocumentHeadlineManager();
+    let iterationCounter = 0;
 
     try {
-      // Itera sobre cada PROMPT (tarefa de IA, ex: "Corrigir Prontuário")
-      prompts.forEach((prompt, promptIndex) => {
-        const { fromHeadline2, toHeadline2, promptContent, optionText } = prompt;
+      prompts.forEach((prompt) => {
+        const { toHeadline2, promptContent, action } = prompt;
         
-        // Itera sobre cada PACIENTE (H1 único selecionado)
         headline1s.forEach(headline1Item => {
           const { headline1 } = headline1Item;
-          let clinicalContent;
 
-          if (requireAugmentedContext) {
-            // --- NOVO CAMINHO: CONTEXTO AMPLIADO ---
-            clinicalContent = documentManager.getAugmentedContentForH1(headline1);
-            
-          } else {
-            // --- CAMINHO ANTIGO: CONTEÚDO ESPECÍFICO ---
-            // Busca o conteúdo MAIS ATUALIZADO para o H2 de origem (fromHeadline2)
-            clinicalContent = documentManager.getContentForPair(headline1, fromHeadline2);
-          }
+          const clinicalContent = documentManager.getAugmentedContentForH1(headline1);
 
-          // Pula este paciente se o conteúdo não for encontrado em nenhum dos caminhos
           if (clinicalContent === null || clinicalContent.trim() === '') {
-            console.warn(`Atenção: Pulando paciente "${headline1}" para o prompt "${optionText}" porque nenhum conteúdo relevante foi encontrado.`);
-            return; // 'continue' para o forEach do 'headline1s'
+            console.warn(`Atenção: Pulando paciente "${headline1}" para o prompt "${prompt.optionText}" porque nenhum conteúdo relevante foi encontrado.`);
+            return;
           }
           
-          // Monta o clinicalContent final com o H1
           const clinicalContentWithHeadline1 = `${headline1}\n\n${clinicalContent}`;
-
-          // Monta o prompt final
           const finalPrompt = `${promptContent}\n\n${clinicalContentWithHeadline1}`;
           
-          // Chama a IA
           const newContent = callAIModel(finalPrompt);
+          console.log(`[AI LOG] Resposta da IA recebida para "${headline1}" / "${toHeadline2}": "${newContent.substring(0, 100)}..."`); // Log dos primeiros 100 caracteres da resposta.
 
-          // Registra a interação no documento de log (opcional)
           iterationCounter++;
-          // logInteractionToDoc(promptContent, headline1, fromHeadline2,toHeadline2, clinicalContentWithHeadline1, newContent, iterationCounter);
           
-          // Atualiza a estrutura do documento EM MEMÓRIA com o novo conteúdo
-          documentManager.createOrUpdateBodyHeadline2(newContent, headline1, toHeadline2, fromHeadline2);
+          // A nova função que será criada no Task 5
+          documentManager.updateDocumentSection(headline1, toHeadline2, newContent, action);
         });
       });
 
-      // Após todos os prompts serem executados, atualiza o documento e formata
       const newBodyText = documentManager.getGroupedText();
-
-      //Logger.log(`newBodyText: ${newBodyText}`);
-
       doc.getBody().setText(newBodyText);
       
       executeFormat();
